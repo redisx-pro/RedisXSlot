@@ -1,0 +1,15 @@
+# ---
+# use defaults from the Google style, over .vscode/settings.json C_Cpp.clang_format_fallbackStyle set
+BasedOnStyle: Google
+IndentWidth: 4
+TabWidth: 4
+#ColumnLimit: 85
+# ---
+Language: Cpp
+AllowShortLoopsOnASingleLine: false
+AllowShortFunctionsOnASingleLine: false
+AllowShortIfStatementsOnASingleLine: false
+AlwaysBreakTemplateDeclarations: false
+ConstructorInitializerAllOnOneLineOrOnePerLine: false
+DerivePointerAlignment: false
+PointerAlignment: Left

@@ -13,3 +13,5 @@ AlwaysBreakTemplateDeclarations: false
 ConstructorInitializerAllOnOneLineOrOnePerLine: false
 DerivePointerAlignment: false
 PointerAlignment: Left
+AccessModifierOffset: -4
+BreakBeforeBinaryOperators: All

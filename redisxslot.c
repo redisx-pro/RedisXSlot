@@ -41,14 +41,13 @@ m_dictType hashSlotDictType = {
     dictModuleValueDestructor /* val destructor */
 };
 
-void slots_init(uint32_t hash_slots_size, int databases) {
+void slots_init(RedisModuleCtx* ctx, uint32_t hash_slots_size, int databases) {
     crc32_init();
 
     g_slots_meta_info.hash_slots_size = hash_slots_size;
     g_slots_meta_info.databases = databases;
 
     arr_db_slot_info = RedisModule_Alloc(sizeof(db_slot_info) * databases);
-
     for (int j = 0; j < databases; j++) {
         arr_db_slot_info[j].slotkey_tables
             = RedisModule_Alloc(sizeof(dict) * hash_slots_size);
@@ -59,21 +58,30 @@ void slots_init(uint32_t hash_slots_size, int databases) {
         arr_db_slot_info[j].slotkey_table_rehashing = 0;
         arr_db_slot_info[j].tagged_key_list = m_zslCreate();
     }
+
+    slotsmgrt_cached_sockfds = RedisModule_CreateDict(ctx);
 }
 
-void slots_free() {
+void slots_free(RedisModuleCtx* ctx) {
     for (int j = 0; j < g_slots_meta_info.databases; j++) {
         if (arr_db_slot_info != NULL
             && arr_db_slot_info[j].slotkey_tables != NULL) {
             RedisModule_Free(arr_db_slot_info[j].slotkey_tables);
+            arr_db_slot_info[j].slotkey_tables = NULL;
         }
         if (arr_db_slot_info != NULL
             && arr_db_slot_info[j].tagged_key_list != NULL) {
             m_zslFree(arr_db_slot_info[j].tagged_key_list);
+            arr_db_slot_info[j].tagged_key_list = NULL;
         }
     }
     if (arr_db_slot_info != NULL) {
         RedisModule_Free(arr_db_slot_info);
+        arr_db_slot_info = NULL;
+    }
+    if (slotsmgrt_cached_sockfds != NULL) {
+        RedisModule_FreeDict(ctx, slotsmgrt_cached_sockfds);
+        slotsmgrt_cached_sockfds = NULL;
     }
 }
 
@@ -123,4 +131,19 @@ int slots_num(const char* s, uint32_t* pcrc, int* phastag) {
         *phastag = hastag;
     }
     return crc & (g_slots_meta_info.hash_slots_size - 1);
+}
+
+/* *
+ * do migrate a key-value for slotsmgrt/slotsmgrtone commands
+ * 1.dump key rdb obj val
+ * 2.batch migrate send to host:port with r/w timeout
+ * 3.if migrate ok, remove key
+ * return value:
+ *    -1 - error happens
+ *   >=0 - # of success migration (0 or 1)
+ * */
+static int slots_migrate_one_key(RedisModuleCtx* ctx, const char* host,
+                                 const char* port, int timeout,
+                                 const char* key) {
+    return 1;
 }

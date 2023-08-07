@@ -30,8 +30,9 @@
  * POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "redismodule.h"
 #include "redisxslot.h"
+
+#define UNUSED(V) ((void)V)
 
 int SlotsHashKey_RedisCommand(RedisModuleCtx* ctx, RedisModuleString** argv,
                               int argc) {
@@ -81,7 +82,15 @@ int SlotsInfo_RedisCommand(RedisModuleCtx* ctx, RedisModuleString** argv,
     int slots_size[g_slots_meta_info.hash_slots_size];
     int n = 0;
     long long end = start + count;
+    int db = RedisModule_GetSelectedDb(ctx);
     for (int i = start; i < end; i++) {
+        int s = dictSize(arr_db_slot_info[db].slotkey_tables[i]);
+        if (s == 0) {
+            continue;
+        }
+        slots_slot[n] = i;
+        slots_size[n] = s;
+        n++;
     }
 
     RedisModule_ReplyWithArray(ctx, n);
@@ -99,6 +108,18 @@ int SlotsInfo_RedisCommand(RedisModuleCtx* ctx, RedisModuleString** argv,
  * */
 int SlotsMGRTOne_RedisCommand(RedisModuleCtx* ctx, RedisModuleString** argv,
                               int argc) {
+    if (argc != 5)
+        return RedisModule_WrongArity(ctx);
+
+    const char* host = RedisModule_StringPtrLen(argv[1], NULL);
+    const char* port = RedisModule_StringPtrLen(argv[2], NULL);
+    long long timeout = 0;
+    if (RedisModule_StringToLongLong(argv[3], &timeout) != REDISMODULE_OK) {
+        RedisModule_ReplyWithError(ctx, REDISXSLOT_ERRORMSG_SYNTAX);
+        return REDISMODULE_ERR;
+    }
+    const char* key = RedisModule_StringPtrLen(argv[4], NULL);
+
     return REDISMODULE_OK;
 }
 
@@ -107,6 +128,25 @@ int SlotsMGRTOne_RedisCommand(RedisModuleCtx* ctx, RedisModuleString** argv,
  * */
 int SlotsMGRTSlot_RedisCommand(RedisModuleCtx* ctx, RedisModuleString** argv,
                                int argc) {
+    /* Use automatic memory management. */
+    RedisModule_AutoMemory(ctx);
+
+    if (argc != 5)
+        return RedisModule_WrongArity(ctx);
+
+    const char* host = RedisModule_StringPtrLen(argv[1], NULL);
+    const char* port = RedisModule_StringPtrLen(argv[2], NULL);
+    long long timeout = 0;
+    if (RedisModule_StringToLongLong(argv[3], &timeout) != REDISMODULE_OK) {
+        RedisModule_ReplyWithError(ctx, REDISXSLOT_ERRORMSG_SYNTAX);
+        return REDISMODULE_ERR;
+    }
+    long long slot = 0;
+    if (RedisModule_StringToLongLong(argv[4], &slot) != REDISMODULE_OK) {
+        RedisModule_ReplyWithError(ctx, REDISXSLOT_ERRORMSG_SYNTAX);
+        return REDISMODULE_ERR;
+    }
+
     return REDISMODULE_OK;
 }
 
@@ -115,6 +155,21 @@ int SlotsMGRTSlot_RedisCommand(RedisModuleCtx* ctx, RedisModuleString** argv,
  * */
 int SlotsMGRTTagOne_RedisCommand(RedisModuleCtx* ctx, RedisModuleString** argv,
                                  int argc) {
+    /* Use automatic memory management. */
+    RedisModule_AutoMemory(ctx);
+
+    if (argc != 5)
+        return RedisModule_WrongArity(ctx);
+
+    const char* host = RedisModule_StringPtrLen(argv[1], NULL);
+    const char* port = RedisModule_StringPtrLen(argv[2], NULL);
+    long long timeout = 0;
+    if (RedisModule_StringToLongLong(argv[3], &timeout) != REDISMODULE_OK) {
+        RedisModule_ReplyWithError(ctx, REDISXSLOT_ERRORMSG_SYNTAX);
+        return REDISMODULE_ERR;
+    }
+    const char* key = RedisModule_StringPtrLen(argv[4], NULL);
+
     return REDISMODULE_OK;
 }
 
@@ -123,6 +178,25 @@ int SlotsMGRTTagOne_RedisCommand(RedisModuleCtx* ctx, RedisModuleString** argv,
  * */
 int SlotsMGRTTagSlot_RedisCommand(RedisModuleCtx* ctx, RedisModuleString** argv,
                                   int argc) {
+    /* Use automatic memory management. */
+    RedisModule_AutoMemory(ctx);
+
+    if (argc != 5)
+        return RedisModule_WrongArity(ctx);
+
+    const char* host = RedisModule_StringPtrLen(argv[1], NULL);
+    const char* port = RedisModule_StringPtrLen(argv[2], NULL);
+    long long timeout = 0;
+    if (RedisModule_StringToLongLong(argv[3], &timeout) != REDISMODULE_OK) {
+        RedisModule_ReplyWithError(ctx, REDISXSLOT_ERRORMSG_SYNTAX);
+        return REDISMODULE_ERR;
+    }
+    long long slot = 0;
+    if (RedisModule_StringToLongLong(argv[4], &slot) != REDISMODULE_OK) {
+        RedisModule_ReplyWithError(ctx, REDISXSLOT_ERRORMSG_SYNTAX);
+        return REDISMODULE_ERR;
+    }
+
     return REDISMODULE_OK;
 }
 
@@ -131,6 +205,21 @@ int SlotsMGRTTagSlot_RedisCommand(RedisModuleCtx* ctx, RedisModuleString** argv,
  * */
 int SlotsDel_RedisCommand(RedisModuleCtx* ctx, RedisModuleString** argv,
                           int argc) {
+    /* Use automatic memory management. */
+    RedisModule_AutoMemory(ctx);
+
+    if (argc < 2)
+        return RedisModule_WrongArity(ctx);
+
+    for (int i = 1; i < argc; i++) {
+        long long slot = 0;
+        if (RedisModule_StringToLongLong(argv[i], &slot) != REDISMODULE_OK) {
+            RedisModule_ReplyWithError(ctx, REDISXSLOT_ERRORMSG_SYNTAX);
+            return REDISMODULE_ERR;
+        }
+        // del slot key
+    }
+
     return REDISMODULE_OK;
 }
 
@@ -139,6 +228,17 @@ int SlotsDel_RedisCommand(RedisModuleCtx* ctx, RedisModuleString** argv,
  * */
 int SlotsRestore_RedisCommand(RedisModuleCtx* ctx, RedisModuleString** argv,
                               int argc) {
+    /* Use automatic memory management. */
+    RedisModule_AutoMemory(ctx);
+
+    if (argc < 4 || (argc - 1) % 3 != 0)
+        return RedisModule_WrongArity(ctx);
+
+    int n = (argc - 1) / 3;
+    for (int i = 0; i < n; i++) {
+        // del -> add -> ttlms (>0)
+    }
+
     return REDISMODULE_OK;
 }
 
@@ -147,6 +247,12 @@ int SlotsRestore_RedisCommand(RedisModuleCtx* ctx, RedisModuleString** argv,
  * */
 int SlotsScan_RedisCommand(RedisModuleCtx* ctx, RedisModuleString** argv,
                            int argc) {
+    /* Use automatic memory management. */
+    RedisModule_AutoMemory(ctx);
+
+    if (argc < 3)
+        return RedisModule_WrongArity(ctx);
+
     return REDISMODULE_OK;
 }
 
@@ -194,7 +300,7 @@ int RedisModule_OnLoad(RedisModuleCtx* ctx, RedisModuleString** argv,
                hash_slots_size, MAX_HASH_SLOTS_SIZE);
         return REDISMODULE_ERR;
     }
-    slots_init(hash_slots_size, databases);
+    slots_init(NULL, hash_slots_size, databases);
 
     if (RedisModule_CreateCommand(
             ctx, "slotshashkey", SlotsHashKey_RedisCommand, "readonly", 0, 0, 0)
@@ -248,7 +354,7 @@ int RedisModule_OnLoad(RedisModuleCtx* ctx, RedisModuleString** argv,
 }
 
 int RedisModule_OnUnload(RedisModuleCtx* ctx) {
-    REDISMODULE_NOT_USED(ctx);
-    slots_free();
+    UNUSED(ctx);
+    slots_free(NULL);
     return REDISMODULE_OK;
 }

@@ -37,20 +37,19 @@ typedef struct _db_slot_info {
     int slotkey_table_rehashing;
     dict** slotkey_tables;
     m_zskiplist* tagged_key_list;
-    // connect fd for slot magrite
-    dict* slotsmgrt_cached_sockfds;
 } db_slot_info;
 
 // declare define var
 slots_meta_info g_slots_meta_info;
 db_slot_info* arr_db_slot_info;
+static RedisModuleDict* slotsmgrt_cached_sockfds;
 
 // declare function
 void crc32_init();
 uint32_t crc32_checksum(const char* buf, int len);
 static const char* slots_tag(const char* s, int* plen);
 int slots_num(const char* s, uint32_t* pcrc, int* phastag);
-void slots_init(uint32_t hash_slots_size, int databases);
-void slots_free();
+void slots_init(RedisModuleCtx* ctx, uint32_t hash_slots_size, int databases);
+void slots_free(RedisModuleCtx* ctx);
 
 #endif /* REDISXSLOT_H */

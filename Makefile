@@ -30,4 +30,5 @@ redisxslot.so: $(CC_OBJECTS)
 	$(LD) -o $@ $(CC_OBJECTS) $(SHOBJ_LDFLAGS) $(LIBS) -lc
 
 clean:
-	rm -rvf *.xo *.so *.o *.a
+	cd $(SOURCEDIR) && rm -rvf *.xo *.so *.o *.a
+	cd $(SOURCEDIR)/dep && rm -rvf *.xo *.so *.o *.a

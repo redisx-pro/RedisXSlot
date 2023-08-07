@@ -164,6 +164,19 @@ int RedisModule_OnLoad(RedisModuleCtx* ctx, RedisModuleString** argv,
         printf("ModuleLoaded with argv[%d] = %s\n", j, s);
     }
 
+    // config get databases
+    RedisModule_AutoMemory(ctx);
+    RedisModuleCallReply* reply
+        = RedisModule_Call(ctx, "CONFIG", "cc", "GET", "databases");
+    long long items = RedisModule_CallReplyLength(reply);
+    if (items != 2)
+        return REDISMODULE_ERR;
+    long long databases;
+    RedisModule_StringToLongLong(
+        RedisModule_CreateStringFromCallReply(
+            RedisModule_CallReplyArrayElement(reply, 1)),
+        &databases);
+
     // init
     long long hash_slots_size = DEFAULT_HASH_SLOTS_SIZE;
     if (argc >= 1
@@ -181,7 +194,7 @@ int RedisModule_OnLoad(RedisModuleCtx* ctx, RedisModuleString** argv,
                hash_slots_size, MAX_HASH_SLOTS_SIZE);
         return REDISMODULE_ERR;
     }
-    slots_init(hash_slots_size);
+    slots_init(hash_slots_size, databases);
 
     if (RedisModule_CreateCommand(
             ctx, "slotshashkey", SlotsHashKey_RedisCommand, "readonly", 0, 0, 0)
@@ -231,5 +244,11 @@ int RedisModule_OnLoad(RedisModuleCtx* ctx, RedisModuleString** argv,
         == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
+    return REDISMODULE_OK;
+}
+
+int RedisModule_OnUnload(RedisModuleCtx* ctx) {
+    REDISMODULE_NOT_USED(ctx);
+    slots_free();
     return REDISMODULE_OK;
 }

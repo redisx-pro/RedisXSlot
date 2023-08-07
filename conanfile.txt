@@ -1,5 +1,6 @@
 [requires]
 hiredis/1.2.0
 [generators]
-CMakeDeps
-CMakeToolchain
+AutotoolsToolchain
+PkgConfigDeps
+

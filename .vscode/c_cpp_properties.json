@@ -3,6 +3,9 @@
         {
             "name": "Linux",
             "includePath": [
+                "${workspaceFolder}/hiredis/adapters",
+                "${workspaceFolder}/hiredis",
+                "${workspaceFolder}",
                 "${default}"
             ],
             "defines": [],

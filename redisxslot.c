@@ -1,7 +1,7 @@
 #include "redisxslot.h"
 
 slots_meta_info g_slots_meta_info;
-db_slot_info* arr_db_slot_info;
+db_slot_info* db_slot_infos;
 
 uint64_t dictModuleStrHash(const void* key) {
     size_t len;
@@ -50,65 +50,40 @@ void slots_init(RedisModuleCtx* ctx, uint32_t hash_slots_size, int databases) {
     g_slots_meta_info.hash_slots_size = hash_slots_size;
     g_slots_meta_info.databases = databases;
 
-    arr_db_slot_info = RedisModule_Alloc(sizeof(db_slot_info) * databases);
+    db_slot_infos = RedisModule_Alloc(sizeof(db_slot_info) * databases);
     for (int j = 0; j < databases; j++) {
-        arr_db_slot_info[j].slotkey_tables
+        db_slot_infos[j].slotkey_tables
             = RedisModule_Alloc(sizeof(dict) * hash_slots_size);
         for (int i = 0; i < hash_slots_size; i++) {
-            arr_db_slot_info[j].slotkey_tables[i]
+            db_slot_infos[j].slotkey_tables[i]
                 = m_dictCreate(&hashSlotDictType, NULL);
         }
-        arr_db_slot_info[j].slotkey_table_rehashing = 0;
-        arr_db_slot_info[j].tagged_key_list = m_zslCreate();
+        db_slot_infos[j].slotkey_table_rehashing = 0;
+        db_slot_infos[j].tagged_key_list = m_zslCreate();
     }
 
-    slotsmgrt_cached_sockfds = RedisModule_CreateDict(ctx);
+    slotsmgrt_cached_ctx_connects = RedisModule_CreateDict(ctx);
 }
 
 void slots_free(RedisModuleCtx* ctx) {
     for (int j = 0; j < g_slots_meta_info.databases; j++) {
-        if (arr_db_slot_info != NULL
-            && arr_db_slot_info[j].slotkey_tables != NULL) {
-            RedisModule_Free(arr_db_slot_info[j].slotkey_tables);
-            arr_db_slot_info[j].slotkey_tables = NULL;
+        if (db_slot_infos != NULL && db_slot_infos[j].slotkey_tables != NULL) {
+            RedisModule_Free(db_slot_infos[j].slotkey_tables);
+            db_slot_infos[j].slotkey_tables = NULL;
         }
-        if (arr_db_slot_info != NULL
-            && arr_db_slot_info[j].tagged_key_list != NULL) {
-            m_zslFree(arr_db_slot_info[j].tagged_key_list);
-            arr_db_slot_info[j].tagged_key_list = NULL;
+        if (db_slot_infos != NULL && db_slot_infos[j].tagged_key_list != NULL) {
+            m_zslFree(db_slot_infos[j].tagged_key_list);
+            db_slot_infos[j].tagged_key_list = NULL;
         }
     }
-    if (arr_db_slot_info != NULL) {
-        RedisModule_Free(arr_db_slot_info);
-        arr_db_slot_info = NULL;
+    if (db_slot_infos != NULL) {
+        RedisModule_Free(db_slot_infos);
+        db_slot_infos = NULL;
     }
-    if (slotsmgrt_cached_sockfds != NULL) {
-        RedisModule_FreeDict(ctx, slotsmgrt_cached_sockfds);
-        slotsmgrt_cached_sockfds = NULL;
+    if (slotsmgrt_cached_ctx_connects != NULL) {
+        RedisModule_FreeDict(ctx, slotsmgrt_cached_ctx_connects);
+        slotsmgrt_cached_ctx_connects = NULL;
     }
-}
-
-/*
- * params s key, plen tag len
- * return tag start pos char *
- */
-static const char* slots_tag(const char* s, int* plen) {
-    int i, j, n = strlen(s);
-    for (i = 0; i < n && s[i] != '{'; i++) {
-    }
-    if (i == n) {
-        return NULL;
-    }
-    i++;
-    for (j = i; j < n && s[j] != '}'; j++) {
-    }
-    if (j == n) {
-        return NULL;
-    }
-    if (plen != NULL) {
-        *plen = j - i;
-    }
-    return s + i;
 }
 
 /*
@@ -136,6 +111,29 @@ int slots_num(const char* s, uint32_t* pcrc, int* phastag) {
     return crc & (g_slots_meta_info.hash_slots_size - 1);
 }
 
+/*
+ * params s key, plen tag len
+ * return tag start pos char *
+ */
+static const char* slots_tag(const char* s, int* plen) {
+    int i, j, n = strlen(s);
+    for (i = 0; i < n && s[i] != '{'; i++) {
+    }
+    if (i == n) {
+        return NULL;
+    }
+    i++;
+    for (j = i; j < n && s[j] != '}'; j++) {
+    }
+    if (j == n) {
+        return NULL;
+    }
+    if (plen != NULL) {
+        *plen = j - i;
+    }
+    return s + i;
+}
+
 /* *
  * do migrate a key-value for slotsmgrt/slotsmgrtone commands
  * 1.dump key rdb obj val
@@ -145,8 +143,119 @@ int slots_num(const char* s, uint32_t* pcrc, int* phastag) {
  *    -1 - error happens
  *   >=0 - # of success migration (0 or 1)
  * */
-static int slots_migrate_one_key(RedisModuleCtx* ctx, const char* host,
-                                 const char* port, int timeout,
-                                 const char* key) {
+static int SlotsMGRT_OneKey(RedisModuleCtx* ctx, const char* host,
+                            const char* port, int timeout, const char* key) {
+    
     return 1;
+}
+
+static db_slot_mgrt_connect* SlotsMGRT_GetConnCtx(RedisModuleCtx* ctx, sds host,
+                                                  sds port,
+                                                  struct timeval timeout) {
+    time_t unixtime = time(NULL);
+    sds name = sdsempty();
+    name = sdscatlen(name, host, sdslen(host));
+    name = sdscatlen(name, ":", 1);
+    name = sdscatlen(name, port, sdslen(port));
+
+    // db_slot_mgrt_connect* conn =
+    // m_dictFetchValue(slotsmgrt_cached_ctx_connects, name);
+    db_slot_mgrt_connect* conn = RedisModule_DictGetC(
+        slotsmgrt_cached_ctx_connects, (void*)name, sdslen(name), NULL);
+    if (conn != NULL) {
+        sdsfree(name);
+        conn->last_time = unixtime;
+        return conn;
+    }
+
+    redisContext* c = redisConnect(host, atoi(port));
+    if (c->err) {
+        char errLog[100];
+        sprintf(errLog, "slotsmgrt: connect to target %s:%s, error = '%s'",
+                host, port, c->errstr);
+        RedisModule_Log(ctx, REDISMODULE_LOGLEVEL_WARNING, errLog);
+        RedisModule_ReplyWithError(ctx, errLog);
+        sdsfree(name);
+        return NULL;
+    }
+    redisSetTimeout(c, timeout);
+    RedisModule_Log(ctx, REDISMODULE_LOGLEVEL_NOTICE,
+                    "slotsmgrt: connect to target %s:%s", host, port);
+
+    conn = RedisModule_Alloc(sizeof(db_slot_mgrt_connect));
+    conn->conn_ctx = c;
+    conn->last_time = unixtime;
+    conn->db = -1;
+
+    // m_dictAdd(slotsmgrt_cached_ctx_connects, name, conn);
+    RedisModule_DictSetC(slotsmgrt_cached_ctx_connects, (void*)name,
+                         sdslen(name), conn);
+    return conn;
+}
+
+static void SlotsMGRT_CloseSocket(RedisModuleCtx* ctx, sds host, sds port) {
+    sds name = sdsempty();
+    name = sdscatlen(name, host, sdslen(host));
+    name = sdscatlen(name, ":", 1);
+    name = sdscatlen(name, port, sdslen(port));
+
+    // db_slot_mgrt_connect* conn =
+    // m_dictFetchValue(slotsmgrt_cached_ctx_connects, name);
+    db_slot_mgrt_connect* conn = RedisModule_DictGetC(
+        slotsmgrt_cached_ctx_connects, (void*)name, sdslen(name), NULL);
+    if (conn != NULL) {
+        RedisModule_Log(ctx, REDISMODULE_LOGLEVEL_WARNING,
+                        "slotsmgrt: close target %s:%s again", host, port);
+        sdsfree(name);
+        return;
+    }
+    RedisModule_Log(ctx, REDISMODULE_LOGLEVEL_NOTICE,
+                    "slotsmgrt: close target %s:%s ok", host, port);
+    // m_dictDelete(slotsmgrt_cached_ctx_connects, name);
+    RedisModule_DictDelC(slotsmgrt_cached_ctx_connects, (void*)name,
+                         sdslen(name), NULL);
+    redisFree(conn->conn_ctx);
+    RedisModule_Free(conn);
+    conn = NULL;
+    sdsfree(name);
+}
+
+// like migrateCloseTimedoutSockets
+// for server cron job to check timeout connect
+static void SlotsMGRT_CloseTimedoutSockets(RedisModuleCtx* ctx) {
+    // maybe use cached server cron time, a little faster.
+    time_t unixtime = time(NULL);
+
+    // m_dictIterator* di =
+    // m_dictGetSafeIterator(slotsmgrt_cached_ctx_connects);
+    RedisModuleDictIter* di = RedisModule_DictIteratorStartC(
+        slotsmgrt_cached_ctx_connects, "^", NULL, 0);
+
+    m_dictEntry* de;
+    void* k;
+    db_slot_mgrt_connect* conn;
+
+    // while ((de = dictNext(di)) != NULL) {
+    //     k = dictGetKey(de);
+    //     conn = dictGetVal(de);
+    size_t keyLen;
+    while ((k = RedisModule_DictNextC(di, &keyLen, (void**)&conn))) {
+        if ((unixtime - conn->last_time) > MGRT_ONE_KEY_TIMEOUT) {
+            RedisModule_Log(
+                ctx, REDISMODULE_LOGLEVEL_NOTICE,
+                "slotsmgrt: timeout target %s, lasttime = %ld, now = %ld",
+                (sds)k, conn->last_time, unixtime);
+
+            // m_dictDelete(slotsmgrt_cached_ctx_connects, k);
+            RedisModule_DictDelC(slotsmgrt_cached_ctx_connects, k,
+                                 strlen((sds)k), NULL);
+
+            redisFree(conn->conn_ctx);
+            RedisModule_Free(conn);
+            conn = NULL;
+        }
+    }
+
+    // m_dictReleaseIterator(di);
+    RedisModule_DictIteratorStop(di);
 }

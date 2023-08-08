@@ -32,7 +32,62 @@
 
 #include "redisxslot.h"
 
-#define UNUSED(V) ((void)V)
+/* Check if Redis version is compatible with the adapter. */
+static inline int redisModuleCompatibilityCheckV5(void) {
+    if (!RedisModule_CreateDict) {
+        return REDIS_ERR;
+    }
+    return REDIS_OK;
+}
+
+/* Check if Redis version is compatible with the adapter. */
+static inline int redisModuleCompatibilityCheckV7(void) {
+    if (!RedisModule_EventLoopAdd || !RedisModule_EventLoopDel
+        || !RedisModule_CreateTimer || !RedisModule_StopTimer) {
+        return REDIS_ERR;
+    }
+    return REDIS_OK;
+}
+int SlotsDump_RedisCommand(RedisModuleCtx* ctx, RedisModuleString** argv,
+                           int argc) {
+    RedisModule_AutoMemory(ctx);
+    RedisModuleCallReply* reply;
+    size_t len;
+    const char* val = RedisModule_StringPtrLen(argv[argc - 1], &len);
+    RedisModule_Call(ctx, "SET", "cc", "k2", "v2");
+    reply = RedisModule_Call(ctx, "dump", "c", "k2");
+    size_t sz;
+    const char* str = RedisModule_CallReplyStringPtr(reply, &sz);
+    RedisModule_ReplyWithLongLong(ctx, sz);
+
+    reply = RedisModule_Call(ctx, "restore", "ccc", "k4", "0", str);
+    int type = RedisModule_CallReplyType(reply);
+    printf("reply--> %p str %s len %d type %d \n", reply, str, sz, type);
+
+    return REDISMODULE_OK;
+}
+
+int Hiredis_Sync_RedisCommand(RedisModuleCtx* ctx, RedisModuleString** argv,
+                              int argc) {
+    redisContext* c = redisConnect("127.0.0.1", 6679);
+    if (c->err) {
+        printf("redis connect Error-->: %s\n", c->errstr);
+        return REDISMODULE_ERR;
+    }
+    redisSetTimeout(c, (struct timeval){.tv_sec = 3, .tv_usec = 0});
+
+    size_t len;
+    const char* val = RedisModule_StringPtrLen(argv[argc - 1], &len);
+    redisReply* reply = redisCommand(c, "SET key %b", val, len);
+    freeReplyObject(reply);
+    reply = redisCommand(c, "GET key");
+    printf("%s\n", reply->str);
+    freeReplyObject(reply);
+    redisFree(c);
+
+    RedisModule_ReplyWithNull(ctx);
+    return REDISMODULE_OK;
+}
 
 int SlotsHashKey_RedisCommand(RedisModuleCtx* ctx, RedisModuleString** argv,
                               int argc) {
@@ -84,7 +139,7 @@ int SlotsInfo_RedisCommand(RedisModuleCtx* ctx, RedisModuleString** argv,
     long long end = start + count;
     int db = RedisModule_GetSelectedDb(ctx);
     for (int i = start; i < end; i++) {
-        int s = dictSize(arr_db_slot_info[db].slotkey_tables[i]);
+        int s = dictSize(db_slot_infos[db].slotkey_tables[i]);
         if (s == 0) {
             continue;
         }
@@ -256,8 +311,8 @@ int SlotsScan_RedisCommand(RedisModuleCtx* ctx, RedisModuleString** argv,
     return REDISMODULE_OK;
 }
 
-/* This function must be present on each Redis module. It is used in order to
- * register the commands into the Redis server. */
+/* This function must be present on each Redis module. It is used in order
+ * to register the commands into the Redis server. */
 int RedisModule_OnLoad(RedisModuleCtx* ctx, RedisModuleString** argv,
                        int argc) {
     if (RedisModule_Init(ctx, "redisxslot", 1, REDISMODULE_APIVER_1)
@@ -265,12 +320,10 @@ int RedisModule_OnLoad(RedisModuleCtx* ctx, RedisModuleString** argv,
         return REDISMODULE_ERR;
 
     // check
-    /*
-    if (redisModuleCompatibilityCheck() != REDIS_OK) {
-        printf("Redis 7.0 or above is required! \n");
+    if (redisModuleCompatibilityCheckV5() != REDIS_OK) {
+        printf("Redis 5.0 or above is required! \n");
         return REDISMODULE_ERR;
     }
-    */
 
     // Log the list of parameters passing loading the module.
     for (int j = 0; j < argc; j++) {
@@ -355,6 +408,16 @@ int RedisModule_OnLoad(RedisModuleCtx* ctx, RedisModuleString** argv,
 
     if (RedisModule_CreateCommand(ctx, "slotsscan", SlotsScan_RedisCommand,
                                   "write", 0, 0, 0)
+        == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+
+    if (RedisModule_CreateCommand(
+            ctx, "hiredis.sync", Hiredis_Sync_RedisCommand, "readonly", 0, 0, 0)
+        == REDISMODULE_ERR)
+        return REDISMODULE_ERR;
+
+    if (RedisModule_CreateCommand(ctx, "slotsdump", SlotsDump_RedisCommand,
+                                  "readonly", 0, 0, 0)
         == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 

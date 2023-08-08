@@ -39,9 +39,11 @@ typedef struct _db_slot_info {
     m_zskiplist* tagged_key_list;
 } db_slot_info;
 
-// declare define var
-slots_meta_info g_slots_meta_info;
-db_slot_info* arr_db_slot_info;
+// declare defined extern var to out use
+extern slots_meta_info g_slots_meta_info;
+extern db_slot_info* arr_db_slot_info;
+
+// declare defined static var to inner use
 static RedisModuleDict* slotsmgrt_cached_sockfds;
 
 // declare function

@@ -1,5 +1,8 @@
 #include "redisxslot.h"
 
+slots_meta_info g_slots_meta_info;
+db_slot_info* arr_db_slot_info;
+
 uint64_t dictModuleStrHash(const void* key) {
     size_t len;
     const char* buf = RedisModule_StringPtrLen(key, &len);

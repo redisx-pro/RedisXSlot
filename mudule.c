@@ -264,6 +264,14 @@ int RedisModule_OnLoad(RedisModuleCtx* ctx, RedisModuleString** argv,
         == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
+    // check
+    /*
+    if (redisModuleCompatibilityCheck() != REDIS_OK) {
+        printf("Redis 7.0 or above is required! \n");
+        return REDISMODULE_ERR;
+    }
+    */
+
     // Log the list of parameters passing loading the module.
     for (int j = 0; j < argc; j++) {
         const char* s = RedisModule_StringPtrLen(argv[j], NULL);

@@ -54,7 +54,7 @@ void slots_init(RedisModuleCtx* ctx, uint32_t hash_slots_size, int databases) {
     for (int j = 0; j < databases; j++) {
         db_slot_infos[j].slotkey_tables
             = RedisModule_Alloc(sizeof(dict) * hash_slots_size);
-        for (int i = 0; i < hash_slots_size; i++) {
+        for (uint32_t i = 0; i < hash_slots_size; i++) {
             db_slot_infos[j].slotkey_tables[i]
                 = m_dictCreate(&hashSlotDictType, NULL);
         }
@@ -145,7 +145,6 @@ static const char* slots_tag(const char* s, int* plen) {
  * */
 static int SlotsMGRT_OneKey(RedisModuleCtx* ctx, const char* host,
                             const char* port, int timeout, const char* key) {
-    
     return 1;
 }
 
@@ -170,11 +169,11 @@ static db_slot_mgrt_connect* SlotsMGRT_GetConnCtx(RedisModuleCtx* ctx, sds host,
 
     redisContext* c = redisConnect(host, atoi(port));
     if (c->err) {
-        char errLog[100];
-        sprintf(errLog, "slotsmgrt: connect to target %s:%s, error = '%s'",
+        char errLog[200];
+        sprintf(errLog, "Err: slotsmgrt connect to target %s:%s, error = '%s'",
                 host, port, c->errstr);
-        RedisModule_Log(ctx, REDISMODULE_LOGLEVEL_WARNING, errLog);
-        RedisModule_ReplyWithError(ctx, errLog);
+        RedisModule_Log(ctx, REDISMODULE_LOGLEVEL_WARNING, "%s", errLog);
+        RedisModule_ReplyWithError(ctx, (const char*)errLog);
         sdsfree(name);
         return NULL;
     }

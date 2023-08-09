@@ -12,11 +12,10 @@
 #include <time.h>
 #include <unistd.h>
 
+#include "dep/sds.h"
 #include "dep/dict.h"
 #include "dep/skiplist.h"
-#include "hiredis/async.h"
 #include "hiredis/hiredis.h"
-#include "hiredis/sds.h"
 #include "redismodule.h"
 
 // define error
@@ -61,7 +60,7 @@ extern db_slot_info* db_slot_infos;
 // declare defined static var to inner use (private prototypes)
 static RedisModuleDict* slotsmgrt_cached_ctx_connects;
 
-// declare function
+// declare api function
 void crc32_init();
 uint32_t crc32_checksum(const char* buf, int len);
 int slots_num(const char* s, uint32_t* pcrc, int* phastag);

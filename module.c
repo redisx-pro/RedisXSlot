@@ -48,22 +48,57 @@ static inline int redisModuleCompatibilityCheckV7(void) {
     }
     return REDIS_OK;
 }
-int SlotsDump_RedisCommand(RedisModuleCtx* ctx, RedisModuleString** argv,
+
+int SlotsTest_RedisCommand(RedisModuleCtx* ctx, RedisModuleString** argv,
                            int argc) {
     RedisModule_AutoMemory(ctx);
     RedisModuleCallReply* reply;
-    size_t len;
-    const char* val = RedisModule_StringPtrLen(argv[argc - 1], &len);
-    RedisModule_Call(ctx, "SET", "cc", "k2", "v2");
-    reply = RedisModule_Call(ctx, "dump", "c", "k2");
+
+    RedisModule_Call(ctx, "SET", "cc", "k2", "v22");
+    reply = RedisModule_Call(ctx, "DUMP", "c", "k2");
     size_t sz;
     const char* str = RedisModule_CallReplyStringPtr(reply, &sz);
-    RedisModule_ReplyWithLongLong(ctx, sz);
 
-    reply = RedisModule_Call(ctx, "restore", "ccc", "k4", "0", str);
+    RedisModuleString* strr = RedisModule_CreateStringFromCallReply(reply);
+    reply = RedisModule_Call(ctx, "RESTORE", "ccs", "k4", "0", strr);
+    /*
     int type = RedisModule_CallReplyType(reply);
-    printf("reply--> %p str %s len %d type %d \n", reply, str, sz, type);
+    do {
+        size_t sz;
+        const char* str = RedisModule_CallReplyStringPtr(reply, &sz);
+        printf("restore reply %p str %s len %ld type %d \n", reply, str, sz,
+               type);
+    } while (0);
+    */
 
+    redisContext* c = redisConnect("127.0.0.1", 6679);
+    if (c->err) {
+        printf("redis connect Error-->: %s\n", c->errstr);
+        return REDISMODULE_ERR;
+    }
+    redisSetTimeout(c, (struct timeval){.tv_sec = 3, .tv_usec = 0});
+
+    redisReply* rr = redisCommand(c, "RESTORE k2 0 %b", str, sz);
+    if (rr == NULL || rr->type == REDIS_REPLY_ERROR) {
+        if (rr != NULL)
+            RedisModule_ReplyWithError(ctx, rr->str);
+        return REDISMODULE_ERR;
+    }
+    freeReplyObject(rr);
+    rr = redisCommand(c, "GET k2");
+    if (rr == NULL || rr->type == REDIS_REPLY_ERROR) {
+        if (rr != NULL)
+            RedisModule_ReplyWithError(ctx, rr->str);
+        return REDISMODULE_ERR;
+    }
+    printf("%s\n", rr->str);
+    freeReplyObject(rr);
+    redisFree(c);
+
+    // reply = RedisModule_Call(ctx, "slotshashkey", "c", "k4");
+    RedisModule_ReplyWithCallReply(ctx, reply);
+
+    RedisModule_FreeCallReply(reply);
     return REDISMODULE_OK;
 }
 
@@ -85,7 +120,7 @@ int Hiredis_Sync_RedisCommand(RedisModuleCtx* ctx, RedisModuleString** argv,
     freeReplyObject(reply);
     redisFree(c);
 
-    RedisModule_ReplyWithNull(ctx);
+    RedisModule_ReplyWithSimpleString(ctx, "OK");
     return REDISMODULE_OK;
 }
 
@@ -416,7 +451,7 @@ int RedisModule_OnLoad(RedisModuleCtx* ctx, RedisModuleString** argv,
         == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
-    if (RedisModule_CreateCommand(ctx, "slotsdump", SlotsDump_RedisCommand,
+    if (RedisModule_CreateCommand(ctx, "slotstest", SlotsTest_RedisCommand,
                                   "readonly", 0, 0, 0)
         == REDISMODULE_ERR)
         return REDISMODULE_ERR;

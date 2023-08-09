@@ -5,10 +5,10 @@ uname_S := $(shell sh -c 'uname -s 2>/dev/null || echo not')
 
 # Compile flags for linux / osx
 ifeq ($(uname_S),Linux)
-	SHOBJ_CFLAGS ?= -W -fPIC -Wall -fno-common -g -ggdb -std=c99 -O2
+	SHOBJ_CFLAGS ?= -W -fPIC -Wall -fno-common -g -ggdb -std=c99 -O0
 	SHOBJ_LDFLAGS ?= -shared
 else
-	SHOBJ_CFLAGS ?= -W -fPIC -Wall -dynamic -fno-common -g -ggdb -std=c99 -O2
+	SHOBJ_CFLAGS ?= -W -fPIC -Wall -dynamic -fno-common -g -ggdb -std=c99 -O0
 	SHOBJ_LDFLAGS ?= -bundle -undefined dynamic_lookup
 endif
 
@@ -34,7 +34,7 @@ all: init redisxslot.so
 init:
 	@git submodule init
 	@git submodule update
-	@make -C $(HIREDIS_DIR)
+#@make -C $(HIREDIS_DIR)
 
 ${SOURCEDIR}/module.o: ${SOURCEDIR}/module.c
 	$(CC) -c -o $@ $(SHOBJ_CFLAGS) $(HIREDIS_CFLAGS) $<

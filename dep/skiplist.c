@@ -64,7 +64,7 @@ void m_zslFree(m_zskiplist* zsl) {
  * levels are less likely to be returned. */
 int m_zslRandomLevel(void) {
     int level = 1;
-    while ((random() & 0xFFFF) < (ZSKIPLIST_P * 0xFFFF))
+    while ((rand() & 0xFFFF) < (ZSKIPLIST_P * 0xFFFF))
         level += 1;
     return (level < ZSKIPLIST_MAXLEVEL) ? level : ZSKIPLIST_MAXLEVEL;
 }

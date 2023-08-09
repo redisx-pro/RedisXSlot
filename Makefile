@@ -5,10 +5,10 @@ uname_S := $(shell sh -c 'uname -s 2>/dev/null || echo not')
 
 # Compile flags for linux / osx
 ifeq ($(uname_S),Linux)
-	SHOBJ_CFLAGS ?= -W -Wall -fno-common -g -ggdb -std=c99 -O2
+	SHOBJ_CFLAGS ?= -W -fPIC -Wall -fno-common -g -ggdb -std=c99 -O2
 	SHOBJ_LDFLAGS ?= -shared
 else
-	SHOBJ_CFLAGS ?= -W -Wall -dynamic -fno-common -g -ggdb -std=c99 -O2
+	SHOBJ_CFLAGS ?= -W -fPIC -Wall -dynamic -fno-common -g -ggdb -std=c99 -O2
 	SHOBJ_LDFLAGS ?= -bundle -undefined dynamic_lookup
 endif
 
@@ -48,8 +48,7 @@ ${SOURCEDIR}/redisxslot.o: ${SOURCEDIR}/redisxslot.c
 
 redisxslot.so: $(CC_OBJECTS)
 	$(LD) -o $@ $(CC_OBJECTS) \
-	$(SHOBJ_LDFLAGS) \
-	$(APPLE_LIBS) \
+	$(SHOBJ_LDFLAGS) $(APPLE_LIBS) \
 	-lc
 
 clean:

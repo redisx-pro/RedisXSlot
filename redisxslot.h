@@ -12,11 +12,11 @@
 #include <time.h>
 #include <unistd.h>
 
-#include "dep/sds.h"
+#include "RedisModulesSDK/redismodule.h"
 #include "dep/dict.h"
+#include "dep/sds.h"
 #include "dep/skiplist.h"
 #include "hiredis/hiredis.h"
-#include "redismodule.h"
 
 // define error
 #define REDISXSLOT_ERRORMSG_SYNTAX "ERR syntax error"

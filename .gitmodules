@@ -4,3 +4,6 @@
 [submodule "threadpool"]
 	path = threadpool
 	url = https://github.com/Pithikos/C-Thread-Pool.git
+[submodule "RedisModulesSDK"]
+	path = RedisModulesSDK
+	url = https://github.com/RedisLabsModules/RedisModulesSDK.git

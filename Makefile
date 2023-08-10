@@ -36,14 +36,14 @@ init:
 	@git submodule update
 #@make -C $(HIREDIS_DIR)
 
-${SOURCEDIR}/module.o: ${SOURCEDIR}/module.c
-	$(CC) -c -o $@ $(SHOBJ_CFLAGS) $(HIREDIS_CFLAGS) $<
+#${SOURCEDIR}/module.o: ${SOURCEDIR}/module.c
+#	$(CC) -c -o $@ $(SHOBJ_CFLAGS) $(HIREDIS_CFLAGS) $<
 
-${SOURCEDIR}/redisxslot.o: ${SOURCEDIR}/redisxslot.c
-	$(CC) -c -o $@ $(SHOBJ_CFLAGS) $(HIREDIS_CFLAGS) $<
+#${SOURCEDIR}/redisxslot.o: ${SOURCEDIR}/redisxslot.c
+#	$(CC) -c -o $@ $(SHOBJ_CFLAGS) $(HIREDIS_CFLAGS) $<
 
 %.o: %.c
-	$(CC) -c -o $@ $(SHOBJ_CFLAGS) $(SHOBJ_CFLAGS) $<
+	$(CC) -c -o $@ $(SHOBJ_CFLAGS) $<
 
 
 redisxslot.so: $(CC_OBJECTS)

@@ -5,6 +5,8 @@
             "includePath": [
                 "${workspaceFolder}/hiredis/adapters",
                 "${workspaceFolder}/hiredis",
+                "${workspaceFolder}/RedisModulesSDK/rmutil",
+                "${workspaceFolder}/RedisModulesSDK",
                 "${workspaceFolder}",
                 "${default}"
             ],

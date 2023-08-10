@@ -144,14 +144,20 @@ static const char* slots_tag(const char* s, int* plen) {
  *   >=0 - # of success migration (0 or 1)
  * */
 static int SlotsMGRT_OneKey(RedisModuleCtx* ctx, const char* host,
-                            const char* port, int timeout, const char* key) {
+                            const char* port, int timeout,
+                            RedisModuleString* key) {
+    RedisModuleCallReply* reply;
+    reply = RedisModule_Call(ctx, "DUMP", "s", key);
+
     return 1;
 }
 
 static db_slot_mgrt_connect* SlotsMGRT_GetConnCtx(RedisModuleCtx* ctx, sds host,
                                                   sds port,
                                                   struct timeval timeout) {
-    time_t unixtime = time(NULL);
+    // time_t unixtime = time(NULL);
+    time_t unixtime = (time_t)(RedisModule_CachedMicroseconds() / 1e6);
+
     sds name = sdsempty();
     name = sdscatlen(name, host, sdslen(host));
     name = sdscatlen(name, ":", 1);
@@ -223,7 +229,8 @@ static void SlotsMGRT_CloseSocket(RedisModuleCtx* ctx, sds host, sds port) {
 // for server cron job to check timeout connect
 static void SlotsMGRT_CloseTimedoutSockets(RedisModuleCtx* ctx) {
     // maybe use cached server cron time, a little faster.
-    time_t unixtime = time(NULL);
+    // time_t unixtime = time(NULL);
+    time_t unixtime = (time_t)(RedisModule_CachedMicroseconds() / 1e6);
 
     // m_dictIterator* di =
     // m_dictGetSafeIterator(slotsmgrt_cached_ctx_connects);

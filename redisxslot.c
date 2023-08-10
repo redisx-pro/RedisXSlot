@@ -301,7 +301,7 @@ static int Pipeline_Restore(RedisModuleCtx* ctx, db_slot_mgrt_connect* conn,
 
     redisReply* rr;
     for (int i = 0; i < n; i++) {
-        int r = redisGetReply(conn, (void**)&rr);
+        int r = redisGetReply(conn->conn_ctx, (void**)&rr);
         if (rr == NULL || rr->type == REDIS_REPLY_ERROR) {
             if (rr != NULL) {
                 RedisModule_ReplyWithError(ctx, rr->str);

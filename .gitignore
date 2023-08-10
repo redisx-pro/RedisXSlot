@@ -62,3 +62,4 @@ dkms.conf
 
 #exclude
 redis
+dump.rdb

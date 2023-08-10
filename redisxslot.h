@@ -16,6 +16,7 @@
 #include "dep/dict.h"
 #include "dep/sds.h"
 #include "dep/skiplist.h"
+#include "dep/util.h"
 #include "hiredis/hiredis.h"
 
 // define error
@@ -27,11 +28,12 @@
 #define MAX_HASH_SLOTS_MASK 0x0000ffff
 #define MAX_HASH_SLOTS_SIZE (MAX_HASH_SLOTS_MASK + 1)
 #define MGRT_ONE_KEY_TIMEOUT 30  // 30s
+#define REDIS_LONGSTR_SIZE 21    /* Bytes needed for long -> str */
 
 // define macro
 #define UNUSED(V) ((void)V)
 
-// define struct
+// define struct type
 typedef struct _slots_meta_info {
     uint32_t hash_slots_size;
     // from config databases
@@ -52,6 +54,15 @@ typedef struct _db_slot_mgrt_connet {
     time_t last_time;
     redisContext* conn_ctx;
 } db_slot_mgrt_connect;
+
+// declare struct and define diff type
+struct _rdb_obj {
+    RedisModuleString* key;
+    RedisModuleString* val;
+    time_t ttlms;
+};
+typedef struct _rdb_obj rdb_dump_obj;
+typedef struct _rdb_obj rdb_parse_obj;
 
 // declare defined extern var to out use
 extern slots_meta_info g_slots_meta_info;

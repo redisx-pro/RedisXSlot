@@ -134,26 +134,9 @@ static const char* slots_tag(const char* s, int* plen) {
     return s + i;
 }
 
-/* *
- * do migrate a key-value for slotsmgrt/slotsmgrtone commands
- * 1.dump key rdb obj val
- * 2.batch migrate send to host:port with r/w timeout
- * 3.if migrate ok, remove key
- * return value:
- *    -1 - error happens
- *   >=0 - # of success migration (0 or 1)
- * */
-static int SlotsMGRT_OneKey(RedisModuleCtx* ctx, const char* host,
-                            const char* port, int timeout,
-                            RedisModuleString* key) {
-    RedisModuleCallReply* reply;
-    reply = RedisModule_Call(ctx, "DUMP", "s", key);
-
-    return 1;
-}
-
-static db_slot_mgrt_connect* SlotsMGRT_GetConnCtx(RedisModuleCtx* ctx, sds host,
-                                                  sds port,
+static db_slot_mgrt_connect* SlotsMGRT_GetConnCtx(RedisModuleCtx* ctx,
+                                                  const sds host,
+                                                  const sds port,
                                                   struct timeval timeout) {
     // time_t unixtime = time(NULL);
     time_t unixtime = (time_t)(RedisModule_CachedMicroseconds() / 1e6);
@@ -195,10 +178,12 @@ static db_slot_mgrt_connect* SlotsMGRT_GetConnCtx(RedisModuleCtx* ctx, sds host,
     // m_dictAdd(slotsmgrt_cached_ctx_connects, name, conn);
     RedisModule_DictSetC(slotsmgrt_cached_ctx_connects, (void*)name,
                          sdslen(name), conn);
+    sdsfree(name);
     return conn;
 }
 
-static void SlotsMGRT_CloseSocket(RedisModuleCtx* ctx, sds host, sds port) {
+static void SlotsMGRT_CloseSocket(RedisModuleCtx* ctx, const sds host,
+                                  const sds port) {
     sds name = sdsempty();
     name = sdscatlen(name, host, sdslen(host));
     name = sdscatlen(name, ":", 1);
@@ -225,6 +210,7 @@ static void SlotsMGRT_CloseSocket(RedisModuleCtx* ctx, sds host, sds port) {
     sdsfree(name);
 }
 
+// SlotsMGRT_CloseTimedoutSockets
 // like migrateCloseTimedoutSockets
 // for server cron job to check timeout connect
 static void SlotsMGRT_CloseTimedoutSockets(RedisModuleCtx* ctx) {
@@ -265,3 +251,157 @@ static void SlotsMGRT_CloseTimedoutSockets(RedisModuleCtx* ctx) {
     // m_dictReleaseIterator(di);
     RedisModule_DictIteratorStop(di);
 }
+
+static int BatchSend_SlotsRestore(RedisModuleCtx* ctx,
+                                  db_slot_mgrt_connect* conn,
+                                  rdb_dump_obj* objs[], int n) {
+    const char* argv[3 * n + 1];
+    size_t argvlen[3 * n + 1];
+    for (int i = 0; i < n; i++) {
+        size_t ksz, vsz;
+        const char* k = RedisModule_StringPtrLen(objs[i]->key, &ksz);
+        const char* v = RedisModule_StringPtrLen(objs[i]->val, &vsz);
+        argv[i * 3 + 0] = k;
+        argvlen[i * 3 + 0] = ksz;
+
+        time_t ttlms = objs[i]->ttlms;
+        char buf[REDIS_LONGSTR_SIZE];
+        int len = m_ll2string(buf, sizeof(buf), (long)ttlms);
+        argv[i * 3 + 1] = buf;
+        argvlen[i * 3 + 1] = (size_t)len;
+
+        argv[i * 3 + 2] = v;
+        argvlen[i * 3 + 2] = vsz;
+    }
+
+    redisReply* rr = redisCommandArgv(conn->conn_ctx, 3 * n + 1, argv, argvlen);
+    if (rr == NULL || rr->type == REDIS_REPLY_ERROR) {
+        if (rr != NULL) {
+            RedisModule_ReplyWithError(ctx, rr->str);
+            freeReplyObject(rr);
+        }
+        return -1;
+    }
+    freeReplyObject(rr);
+
+    return n;
+}
+
+static int Pipeline_Restore(RedisModuleCtx* ctx, db_slot_mgrt_connect* conn,
+                            rdb_dump_obj* objs[], int n) {
+    for (int i = 0; i < n; i++) {
+        size_t ksz, vsz;
+        const char* k = RedisModule_StringPtrLen(objs[i]->key, &ksz);
+        const char* v = RedisModule_StringPtrLen(objs[i]->val, &vsz);
+        time_t ttlms = objs[i]->ttlms;
+
+        redisAppendCommand(conn->conn_ctx, "RESTORE %b %ld %b", k, ksz, ttlms,
+                           v, vsz);
+    }
+
+    redisReply* rr;
+    for (int i = 0; i < n; i++) {
+        int r = redisGetReply(conn, (void**)&rr);
+        if (rr == NULL || rr->type == REDIS_REPLY_ERROR) {
+            if (rr != NULL) {
+                RedisModule_ReplyWithError(ctx, rr->str);
+                freeReplyObject(rr);
+            }
+            return -1;
+        }
+        freeReplyObject(rr);
+    }
+
+    return n;
+}
+
+// MGRT
+// batch migrate send to host:port with r/w timeout,
+// use withrestore use redis self restore to migrate,
+// default with SlotsRestore.
+// return value:
+//    -1 - error happens
+//   >=0 - # of success migration (0 or n)
+static int MGRT(RedisModuleCtx* ctx, const sds host, const sds port,
+                time_t timeoutMS, rdb_dump_obj* objs[], int n, sds mgrtType) {
+    struct timeval timeout
+        = {.tv_sec = timeoutMS / 1000, .tv_usec = (timeoutMS % 1000) * 1000};
+    db_slot_mgrt_connect* conn = SlotsMGRT_GetConnCtx(ctx, host, port, timeout);
+    if (conn == NULL) {
+        return -1;
+    }
+    // todo auth
+
+    redisReply* rr;
+    int db = RedisModule_GetSelectedDb(ctx);
+    rr = redisCommand(conn->conn_ctx, "SELECT %d", db);
+    if (rr == NULL || rr->type == REDIS_REPLY_ERROR) {
+        if (rr != NULL) {
+            freeReplyObject(rr);
+            RedisModule_ReplyWithError(ctx, rr->str);
+        }
+        return REDISMODULE_ERR;
+    }
+    freeReplyObject(rr);
+
+    sdstolower(mgrtType);
+    if (sdscmp("withrestore", mgrtType) == 0) {
+        return Pipeline_Restore(ctx, conn, objs, n);
+    }
+
+    return BatchSend_SlotsRestore(ctx, conn, objs, n);
+}
+
+// SlotsMGRT_OneKey
+// do migrate a key-value for slotsmgrt/slotsmgrtone commands
+// 1.dump key rdb obj val
+// 2.batch migrate send to host:port with r/w timeout
+// 3.if migrate ok, remove key
+// return value:
+//    -1 - error happens
+//   >=0 - # of success migration (0 or 1)
+static int SlotsMGRT_OneKey(RedisModuleCtx* ctx, const sds host, const sds port,
+                            time_t timeout, RedisModuleString* key,
+                            sds mgrtType) {
+    RedisModuleCallReply* reply;
+    reply = RedisModule_Call(ctx, "DUMP", "s", key);
+    if (reply == NULL
+        || RedisModule_CallReplyType(reply) != REDISMODULE_REPLY_STRING) {
+        RedisModule_ReplyWithCallReply(ctx, reply);
+        return REDISMODULE_ERR;
+    }
+    RedisModuleString* val = RedisModule_CreateStringFromCallReply(reply);
+
+    reply = RedisModule_Call(ctx, "PTTL", "s", key);
+    if (reply == NULL
+        || RedisModule_CallReplyType(reply) != REDISMODULE_REPLY_INTEGER) {
+        RedisModule_ReplyWithCallReply(ctx, reply);
+        return REDISMODULE_ERR;
+    }
+    long long ttlms = RedisModule_CallReplyInteger(reply);
+
+    rdb_dump_obj* obj = RedisModule_Alloc(sizeof(rdb_dump_obj));
+    obj->key = key;
+    obj->val = val;
+    obj->ttlms = ttlms;
+    rdb_dump_obj* objs[] = {obj};
+    int ret = MGRT(ctx, host, port, timeout, objs, 1, mgrtType);
+    if (ret < 0) {
+        return REDISMODULE_ERR;
+    }
+
+    if (ret > 0) {
+        reply = RedisModule_Call(ctx, "DEL", "s", key);
+        if (reply == NULL
+            || RedisModule_CallReplyType(reply) != REDISMODULE_REPLY_INTEGER) {
+            RedisModule_ReplyWithCallReply(ctx, reply);
+            return REDISMODULE_ERR;
+        }
+    }
+
+    RedisModule_Free(obj);
+    return ret;
+}
+
+// todo try to add thread pool to migrate, slotsrestore add thread pool to
+// restore , need lock shared obj.

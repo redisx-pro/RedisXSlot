@@ -225,10 +225,10 @@ static void SlotsMGRT_CloseTimedoutConns(RedisModuleCtx* ctx) {
     RedisModuleDictIter* di = RedisModule_DictIteratorStartC(
         slotsmgrt_cached_ctx_connects, "^", NULL, 0);
 
-    m_dictEntry* de;
     void* k;
     db_slot_mgrt_connect* conn;
 
+    // m_dictEntry* de;
     // while ((de = dictNext(di)) != NULL) {
     //     k = dictGetKey(de);
     //     conn = dictGetVal(de);
@@ -257,6 +257,7 @@ static void SlotsMGRT_CloseTimedoutConns(RedisModuleCtx* ctx) {
 static int BatchSend_SlotsRestore(RedisModuleCtx* ctx,
                                   db_slot_mgrt_connect* conn,
                                   rdb_dump_obj* objs[], int n) {
+    UNUSED(ctx);
     const char* argv[3 * n + 1];
     size_t argvlen[3 * n + 1];
     for (int i = 0; i < n; i++) {
@@ -291,6 +292,7 @@ static int BatchSend_SlotsRestore(RedisModuleCtx* ctx,
 
 static int Pipeline_Restore(RedisModuleCtx* ctx, db_slot_mgrt_connect* conn,
                             rdb_dump_obj* objs[], int n) {
+    UNUSED(ctx);
     for (int i = 0; i < n; i++) {
         size_t ksz, vsz;
         const char* k = RedisModule_StringPtrLen(objs[i]->key, &ksz);
@@ -475,8 +477,7 @@ static int restoreMutli(RedisModuleCtx* ctx, rdb_dump_obj* objs[], int n) {
 }
 
 static void restoreOneTask(void* arg) {
-    slots_restore_one_task_params* params
-        = (struct slots_restore_one_task_params*)arg;
+    slots_restore_one_task_params* params = (slots_restore_one_task_params*)arg;
     params->result_code = restoreOne(params->ctx, params->obj);
 }
 

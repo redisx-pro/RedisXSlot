@@ -56,6 +56,8 @@ static inline int redisModuleCompatibilityCheckV7(void) {
 
 int SlotsTest_RedisCommand(RedisModuleCtx* ctx, RedisModuleString** argv,
                            int argc) {
+    UNUSED(argv);
+    UNUSED(argc);
     RedisModule_AutoMemory(ctx);
     RedisModuleCallReply* reply;
 
@@ -337,7 +339,7 @@ int SlotsDel_RedisCommand(RedisModuleCtx* ctx, RedisModuleString** argv,
             RedisModule_ReplyWithError(ctx, REDISXSLOT_ERRORMSG_SYNTAX);
             return REDISMODULE_ERR;
         }
-        // del slot key
+        // todo  del slot key
     }
 
     return REDISMODULE_OK;
@@ -390,8 +392,40 @@ int SlotsScan_RedisCommand(RedisModuleCtx* ctx, RedisModuleString** argv,
     /* Use automatic memory management. */
     RedisModule_AutoMemory(ctx);
 
-    if (argc < 3)
+    if (argc != 3 && argc != 5)
         return RedisModule_WrongArity(ctx);
+
+    long long slot = 0;
+    if (RedisModule_StringToLongLong(argv[1], &slot) != REDISMODULE_OK) {
+        RedisModule_ReplyWithError(ctx, REDISXSLOT_ERRORMSG_SYNTAX);
+        return REDISMODULE_ERR;
+    }
+
+    long long cursor = 0;
+    if (RedisModule_StringToLongLong(argv[1], &cursor) != REDISMODULE_OK) {
+        RedisModule_ReplyWithError(ctx, REDISXSLOT_ERRORMSG_SYNTAX);
+        return REDISMODULE_ERR;
+    }
+
+    long long count = 10;
+    if (argc == 5) {
+        const char* str = RedisModule_StringPtrLen(argv[3], NULL);
+        if (strcasecmp(str, "count") != 0) {
+            RedisModule_ReplyWithError(ctx, REDISXSLOT_ERRORMSG_SYNTAX);
+            return REDISMODULE_ERR;
+        }
+        long long v = 0;
+        if (RedisModule_StringToLongLong(argv[4], &v) != REDISMODULE_OK) {
+            RedisModule_ReplyWithError(ctx, REDISXSLOT_ERRORMSG_SYNTAX);
+            return REDISMODULE_ERR;
+        }
+        if (v < 1) {
+            RedisModule_ReplyWithError(ctx, REDISXSLOT_ERRORMSG_SYNTAX);
+            return REDISMODULE_ERR;
+        }
+        count = v;
+    }
+    // todo scan
 
     return REDISMODULE_OK;
 }

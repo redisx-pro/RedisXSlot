@@ -34,7 +34,7 @@ all: init redisxslot.so
 init:
 	@git submodule init
 	@git submodule update
-#@make -C $(HIREDIS_DIR)
+#	@make -C $(HIREDIS_DIR)
 
 #${SOURCEDIR}/module.o: ${SOURCEDIR}/module.c
 #	$(CC) -c -o $@ $(SHOBJ_CFLAGS) $(HIREDIS_CFLAGS) $<
@@ -54,4 +54,4 @@ redisxslot.so: $(CC_OBJECTS)
 clean:
 	cd $(SOURCEDIR) && rm -rvf *.xo *.so *.o *.a
 	cd $(SOURCEDIR)/dep && rm -rvf *.xo *.so *.o *.a
-	cd $(HIREDIS_DIR) && make clean
+#	cd $(HIREDIS_DIR) && make clean

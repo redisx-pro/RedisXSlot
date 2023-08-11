@@ -15,8 +15,9 @@
 #include <unistd.h>
 
 #include "RedisModulesSDK/redismodule.h"
+#include "RedisModulesSDK/rmutil/sds.h"
 #include "dep/dict.h"
-#include "dep/sds.h"
+#include "dep/list.h"
 #include "dep/skiplist.h"
 #include "dep/util.h"
 #include "hiredis/hiredis.h"
@@ -64,9 +65,13 @@ typedef struct _slots_meta_info {
 } slots_meta_info;
 
 typedef struct _db_slot_info {
+    // current db
     int db;
+    // rehash flag
     int slotkey_table_rehashing;
+    // hash table entry: RedisModuleString* key
     dict** slotkey_tables;
+    // member: RedisModuleString* key, score: uint32_t crc
     m_zskiplist* tagged_key_list;
 } db_slot_info;
 

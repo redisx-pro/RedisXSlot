@@ -235,12 +235,16 @@ int SlotsMGRTSlot_RedisCommand(RedisModuleCtx* ctx, RedisModuleString** argv,
         mgrtType = RedisModule_StringPtrLen(argv[5], NULL);
     }
 
+    int db = RedisModule_GetSelectedDb(ctx);
     int r = SlotsMGRT_SlotOneKey(ctx, host, port, timeout, (int)slot, mgrtType);
     if (r == SLOTS_MGRT_ERR) {
         RedisModule_ReplyWithError(ctx, REDISXSLOT_ERRORMSG_MGRT);
         return REDISMODULE_ERR;
     }
+    RedisModule_ReplyWithArray(ctx, 2);
     RedisModule_ReplyWithLongLong(ctx, r);
+    RedisModule_ReplyWithLongLong(
+        ctx, dictSize(db_slot_infos[db].slotkey_tables[slot]));
     return REDISMODULE_OK;
 }
 

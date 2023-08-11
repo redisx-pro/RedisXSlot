@@ -32,6 +32,11 @@
 
 #include "redisxslot.h"
 
+// todo:
+// 1. sub notify event hook to add/remove dict (db slot keys)
+// 2. sub CronLoop event hook to resize/rehash dict (db slot keys)
+// 3. db slot key meta info save to rdb, load from rdb
+
 /* Check if Redis version is compatible with the adapter. */
 static inline int redisModuleCompatibilityCheckV5(void) {
     if (!RedisModule_CreateDict) {
@@ -99,28 +104,6 @@ int SlotsTest_RedisCommand(RedisModuleCtx* ctx, RedisModuleString** argv,
     RedisModule_ReplyWithCallReply(ctx, reply);
 
     RedisModule_FreeCallReply(reply);
-    return REDISMODULE_OK;
-}
-
-int Hiredis_Sync_RedisCommand(RedisModuleCtx* ctx, RedisModuleString** argv,
-                              int argc) {
-    redisContext* c = redisConnect("127.0.0.1", 6679);
-    if (c->err) {
-        printf("redis connect Error-->: %s\n", c->errstr);
-        return REDISMODULE_ERR;
-    }
-    redisSetTimeout(c, (struct timeval){.tv_sec = 3, .tv_usec = 0});
-
-    size_t len;
-    const char* val = RedisModule_StringPtrLen(argv[argc - 1], &len);
-    redisReply* reply = redisCommand(c, "SET key %b", val, len);
-    freeReplyObject(reply);
-    reply = redisCommand(c, "GET key");
-    printf("%s\n", reply->str);
-    freeReplyObject(reply);
-    redisFree(c);
-
-    RedisModule_ReplyWithSimpleString(ctx, "OK");
     return REDISMODULE_OK;
 }
 
@@ -198,7 +181,7 @@ int SlotsInfo_RedisCommand(RedisModuleCtx* ctx, RedisModuleString** argv,
  * */
 int SlotsMGRTOne_RedisCommand(RedisModuleCtx* ctx, RedisModuleString** argv,
                               int argc) {
-    if (argc != 5)
+    if (argc != 5 && argc != 6)
         return RedisModule_WrongArity(ctx);
 
     const char* host = RedisModule_StringPtrLen(argv[1], NULL);
@@ -208,8 +191,18 @@ int SlotsMGRTOne_RedisCommand(RedisModuleCtx* ctx, RedisModuleString** argv,
         RedisModule_ReplyWithError(ctx, REDISXSLOT_ERRORMSG_SYNTAX);
         return REDISMODULE_ERR;
     }
-    const char* key = RedisModule_StringPtrLen(argv[4], NULL);
 
+    const char* mgrtType;
+    if (argc == 6) {
+        mgrtType = RedisModule_StringPtrLen(argv[5], NULL);
+    }
+
+    int r = SlotsMGRT_OneKey(ctx, host, port, timeout, argv[4], mgrtType);
+    if (r == SLOTS_MGRT_ERR) {
+        RedisModule_ReplyWithError(ctx, REDISXSLOT_ERRORMSG_MGRT);
+        return REDISMODULE_ERR;
+    }
+    RedisModule_ReplyWithLongLong(ctx, r);
     return REDISMODULE_OK;
 }
 
@@ -221,7 +214,7 @@ int SlotsMGRTSlot_RedisCommand(RedisModuleCtx* ctx, RedisModuleString** argv,
     /* Use automatic memory management. */
     RedisModule_AutoMemory(ctx);
 
-    if (argc != 5)
+    if (argc != 5 && argc != 6)
         return RedisModule_WrongArity(ctx);
 
     const char* host = RedisModule_StringPtrLen(argv[1], NULL);
@@ -237,6 +230,17 @@ int SlotsMGRTSlot_RedisCommand(RedisModuleCtx* ctx, RedisModuleString** argv,
         return REDISMODULE_ERR;
     }
 
+    const char* mgrtType;
+    if (argc == 6) {
+        mgrtType = RedisModule_StringPtrLen(argv[5], NULL);
+    }
+
+    int r = SlotsMGRT_SlotOneKey(ctx, host, port, timeout, (int)slot, mgrtType);
+    if (r == SLOTS_MGRT_ERR) {
+        RedisModule_ReplyWithError(ctx, REDISXSLOT_ERRORMSG_MGRT);
+        return REDISMODULE_ERR;
+    }
+    RedisModule_ReplyWithLongLong(ctx, r);
     return REDISMODULE_OK;
 }
 
@@ -248,7 +252,7 @@ int SlotsMGRTTagOne_RedisCommand(RedisModuleCtx* ctx, RedisModuleString** argv,
     /* Use automatic memory management. */
     RedisModule_AutoMemory(ctx);
 
-    if (argc != 5)
+    if (argc != 5 && argc != 6)
         return RedisModule_WrongArity(ctx);
 
     const char* host = RedisModule_StringPtrLen(argv[1], NULL);
@@ -258,8 +262,18 @@ int SlotsMGRTTagOne_RedisCommand(RedisModuleCtx* ctx, RedisModuleString** argv,
         RedisModule_ReplyWithError(ctx, REDISXSLOT_ERRORMSG_SYNTAX);
         return REDISMODULE_ERR;
     }
-    const char* key = RedisModule_StringPtrLen(argv[4], NULL);
 
+    const char* mgrtType;
+    if (argc == 6) {
+        mgrtType = RedisModule_StringPtrLen(argv[5], NULL);
+    }
+
+    int r = SlotsMGRT_TagKeys(ctx, host, port, timeout, argv[3], mgrtType);
+    if (r == SLOTS_MGRT_ERR) {
+        RedisModule_ReplyWithError(ctx, REDISXSLOT_ERRORMSG_MGRT);
+        return REDISMODULE_ERR;
+    }
+    RedisModule_ReplyWithLongLong(ctx, r);
     return REDISMODULE_OK;
 }
 
@@ -286,6 +300,18 @@ int SlotsMGRTTagSlot_RedisCommand(RedisModuleCtx* ctx, RedisModuleString** argv,
         RedisModule_ReplyWithError(ctx, REDISXSLOT_ERRORMSG_SYNTAX);
         return REDISMODULE_ERR;
     }
+    const char* mgrtType;
+    if (argc == 6) {
+        mgrtType = RedisModule_StringPtrLen(argv[5], NULL);
+    }
+
+    int r
+        = SlotsMGRT_TagSlotKeys(ctx, host, port, timeout, (int)slot, mgrtType);
+    if (r == SLOTS_MGRT_ERR) {
+        RedisModule_ReplyWithError(ctx, REDISXSLOT_ERRORMSG_MGRT);
+        return REDISMODULE_ERR;
+    }
+    RedisModule_ReplyWithLongLong(ctx, r);
 
     return REDISMODULE_OK;
 }
@@ -325,10 +351,30 @@ int SlotsRestore_RedisCommand(RedisModuleCtx* ctx, RedisModuleString** argv,
         return RedisModule_WrongArity(ctx);
 
     int n = (argc - 1) / 3;
+    rdb_dump_obj* objs = RedisModule_Alloc(sizeof(rdb_dump_obj) * n);
     for (int i = 0; i < n; i++) {
         // del -> add -> ttlms (>0)
+        objs[i].key = argv[i * 3 + 0];
+        long long ttlms = 0;
+        if (RedisModule_StringToLongLong(argv[i * 3 + 1], &ttlms)
+            != REDISMODULE_OK) {
+            RedisModule_ReplyWithError(ctx, REDISXSLOT_ERRORMSG_SYNTAX);
+            RedisModule_Free(objs);
+            return REDISMODULE_ERR;
+        }
+        objs[i].ttlms = (time_t)ttlms;
+        objs[i].val = argv[i * 3 + 2];
     }
 
+    int ret = SlotsMGRT_Restore(ctx, &objs, n);
+    if (ret == SLOTS_MGRT_ERR) {
+        RedisModule_ReplyWithError(ctx, REDISXSLOT_ERRORMSG_MGRT);
+        RedisModule_Free(objs);
+        return REDISMODULE_ERR;
+    }
+
+    RedisModule_ReplyWithLongDouble(ctx, ret);
+    RedisModule_Free(objs);
     return REDISMODULE_OK;
 }
 
@@ -346,26 +392,8 @@ int SlotsScan_RedisCommand(RedisModuleCtx* ctx, RedisModuleString** argv,
     return REDISMODULE_OK;
 }
 
-/* This function must be present on each Redis module. It is used in order
- * to register the commands into the Redis server. */
-int RedisModule_OnLoad(RedisModuleCtx* ctx, RedisModuleString** argv,
-                       int argc) {
-    if (RedisModule_Init(ctx, "redisxslot", 1, REDISMODULE_APIVER_1)
-        == REDISMODULE_ERR)
-        return REDISMODULE_ERR;
-
-    // check
-    if (redisModuleCompatibilityCheckV5() != REDIS_OK) {
-        printf("Redis 5.0 or above is required! \n");
-        return REDISMODULE_ERR;
-    }
-
-    // Log the list of parameters passing loading the module.
-    for (int j = 0; j < argc; j++) {
-        const char* s = RedisModule_StringPtrLen(argv[j], NULL);
-        printf("ModuleLoaded with argv[%d] = %s\n", j, s);
-    }
-
+static int redisModule_SlotsInit(RedisModuleCtx* ctx, RedisModuleString** argv,
+                                 int argc) {
     // config get databases
     RedisModule_AutoMemory(ctx);
     RedisModuleCallReply* reply
@@ -379,7 +407,7 @@ int RedisModule_OnLoad(RedisModuleCtx* ctx, RedisModuleString** argv,
             RedisModule_CallReplyArrayElement(reply, 1)),
         &databases);
 
-    // init
+    // databases
     long long hash_slots_size = DEFAULT_HASH_SLOTS_SIZE;
     if (argc >= 1
         && RedisModule_StringToLongLong(argv[0], &hash_slots_size)
@@ -396,65 +424,66 @@ int RedisModule_OnLoad(RedisModuleCtx* ctx, RedisModuleString** argv,
                hash_slots_size, MAX_HASH_SLOTS_SIZE);
         return REDISMODULE_ERR;
     }
-    slots_init(NULL, hash_slots_size, databases);
 
-    if (RedisModule_CreateCommand(
-            ctx, "slotshashkey", SlotsHashKey_RedisCommand, "readonly", 0, 0, 0)
+    // num_threads
+    long long num_threads = 0;
+    if (argc >= 2
+        && RedisModule_StringToLongLong(argv[0], &num_threads)
+               == REDISMODULE_ERR) {
+        return REDISMODULE_ERR;
+    }
+    if (num_threads <= 0) {
+        printf("[ERROR] ModuleLoaded threads num %lld <=0\n", num_threads);
+        return REDISMODULE_ERR;
+    }
+    if (num_threads > MAX_NUM_THREADS) {
+        printf("[ERROR] ModuleLoaded threads num %lld > max num %d\n",
+               num_threads, MAX_NUM_THREADS);
+        return REDISMODULE_ERR;
+    }
+
+    slots_init(NULL, hash_slots_size, databases, num_threads);
+    return REDISMODULE_OK;
+}
+
+/* This function must be present on each Redis module. It is used in order
+ * to register the commands into the Redis server. */
+int RedisModule_OnLoad(RedisModuleCtx* ctx, RedisModuleString** argv,
+                       int argc) {
+    if (RedisModule_Init(ctx, "redisxslot", REDISXSLOT_APIVER_1,
+                         REDISMODULE_APIVER_1)
         == REDISMODULE_ERR)
         return REDISMODULE_ERR;
 
-    if (RedisModule_CreateCommand(ctx, "slotsinfo", SlotsInfo_RedisCommand,
-                                  "readonly", 0, 0, 0)
-        == REDISMODULE_ERR)
+    // check
+    if (redisModuleCompatibilityCheckV5() != REDISMODULE_OK) {
+        printf("Redis 5.0 or above is required! \n");
         return REDISMODULE_ERR;
+    }
 
-    if (RedisModule_CreateCommand(
-            ctx, "slotsmgrtone", SlotsMGRTOne_RedisCommand, "readonly", 0, 0, 0)
-        == REDISMODULE_ERR)
-        return REDISMODULE_ERR;
+    // Log the list of parameters passing loading the module.
+    for (int j = 0; j < argc; j++) {
+        const char* s = RedisModule_StringPtrLen(argv[j], NULL);
+        printf("ModuleLoaded with argv[%d] = %s\n", j, s);
+    }
 
-    if (RedisModule_CreateCommand(ctx, "slotsmgrtslot",
-                                  SlotsMGRTSlot_RedisCommand, "readonly", 0, 0,
-                                  0)
-        == REDISMODULE_ERR)
+    // init
+    if (redisModule_SlotsInit(ctx, argv, argc) != REDISMODULE_OK) {
+        printf("redisModule_SlotsInit fail! \n");
         return REDISMODULE_ERR;
+    }
 
-    if (RedisModule_CreateCommand(ctx, "slotsmgrttagone",
-                                  SlotsMGRTTagOne_RedisCommand, "readonly", 0,
-                                  0, 0)
-        == REDISMODULE_ERR)
-        return REDISMODULE_ERR;
+    CREATE_ROMCMD("slotshashkey", SlotsHashKey_RedisCommand, 0, 0, 0);
+    CREATE_ROMCMD("slotsinfo", SlotsInfo_RedisCommand, 0, 0, 0);
+    CREATE_ROMCMD("slotsscan", SlotsScan_RedisCommand, 0, 0, 0);
 
-    if (RedisModule_CreateCommand(ctx, "slotsmgrttagslot",
-                                  SlotsMGRTTagSlot_RedisCommand, "readonly", 0,
-                                  0, 0)
-        == REDISMODULE_ERR)
-        return REDISMODULE_ERR;
-
-    if (RedisModule_CreateCommand(ctx, "slotsrestore",
-                                  SlotsRestore_RedisCommand, "write", 0, 0, 0)
-        == REDISMODULE_ERR)
-        return REDISMODULE_ERR;
-
-    if (RedisModule_CreateCommand(ctx, "slotsdel", SlotsDel_RedisCommand,
-                                  "write", 0, 0, 0)
-        == REDISMODULE_ERR)
-        return REDISMODULE_ERR;
-
-    if (RedisModule_CreateCommand(ctx, "slotsscan", SlotsScan_RedisCommand,
-                                  "write", 0, 0, 0)
-        == REDISMODULE_ERR)
-        return REDISMODULE_ERR;
-
-    if (RedisModule_CreateCommand(
-            ctx, "hiredis.sync", Hiredis_Sync_RedisCommand, "readonly", 0, 0, 0)
-        == REDISMODULE_ERR)
-        return REDISMODULE_ERR;
-
-    if (RedisModule_CreateCommand(ctx, "slotstest", SlotsTest_RedisCommand,
-                                  "readonly", 0, 0, 0)
-        == REDISMODULE_ERR)
-        return REDISMODULE_ERR;
+    CREATE_WRMCMD("slotsmgrtone", SlotsMGRTOne_RedisCommand, 0, 0, 0);
+    CREATE_WRMCMD("slotsmgrtslot", SlotsMGRTSlot_RedisCommand, 0, 0, 0);
+    CREATE_WRMCMD("slotsmgrttagone", SlotsMGRTTagOne_RedisCommand, 0, 0, 0);
+    CREATE_WRMCMD("slotsmgrttagslot", SlotsMGRTTagSlot_RedisCommand, 0, 0, 0);
+    CREATE_WRMCMD("slotsrestore", SlotsRestore_RedisCommand, 0, 0, 0);
+    CREATE_WRMCMD("slotsdel", SlotsDel_RedisCommand, 0, 0, 0);
+    CREATE_WRMCMD("slotstest", SlotsTest_RedisCommand, 0, 0, 0);
 
     return REDISMODULE_OK;
 }

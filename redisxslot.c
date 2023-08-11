@@ -44,11 +44,14 @@ m_dictType hashSlotDictType = {
     dictModuleValueDestructor /* val destructor */
 };
 
-void slots_init(RedisModuleCtx* ctx, uint32_t hash_slots_size, int databases) {
+void slots_init(RedisModuleCtx* ctx, uint32_t hash_slots_size, int databases,
+                int num_threads) {
     crc32_init();
 
     g_slots_meta_info.hash_slots_size = hash_slots_size;
     g_slots_meta_info.databases = databases;
+    g_slots_meta_info.slots_mgrt_threads = num_threads;
+    g_slots_meta_info.slots_restore_threads = num_threads;
 
     db_slot_infos = RedisModule_Alloc(sizeof(db_slot_info) * databases);
     for (int j = 0; j < databases; j++) {
@@ -162,7 +165,6 @@ static db_slot_mgrt_connect* SlotsMGRT_GetConnCtx(RedisModuleCtx* ctx,
         sprintf(errLog, "Err: slotsmgrt connect to target %s:%s, error = '%s'",
                 host, port, c->errstr);
         RedisModule_Log(ctx, REDISMODULE_LOGLEVEL_WARNING, "%s", errLog);
-        RedisModule_ReplyWithError(ctx, (const char*)errLog);
         sdsfree(name);
         return NULL;
     }
@@ -182,8 +184,8 @@ static db_slot_mgrt_connect* SlotsMGRT_GetConnCtx(RedisModuleCtx* ctx,
     return conn;
 }
 
-static void SlotsMGRT_CloseSocket(RedisModuleCtx* ctx, const sds host,
-                                  const sds port) {
+static void SlotsMGRT_CloseConn(RedisModuleCtx* ctx, const sds host,
+                                const sds port) {
     sds name = sdsempty();
     name = sdscatlen(name, host, sdslen(host));
     name = sdscatlen(name, ":", 1);
@@ -210,10 +212,10 @@ static void SlotsMGRT_CloseSocket(RedisModuleCtx* ctx, const sds host,
     sdsfree(name);
 }
 
-// SlotsMGRT_CloseTimedoutSockets
+// SlotsMGRT_CloseTimedoutConns
 // like migrateCloseTimedoutSockets
 // for server cron job to check timeout connect
-static void SlotsMGRT_CloseTimedoutSockets(RedisModuleCtx* ctx) {
+static void SlotsMGRT_CloseTimedoutConns(RedisModuleCtx* ctx) {
     // maybe use cached server cron time, a little faster.
     // time_t unixtime = time(NULL);
     time_t unixtime = (time_t)(RedisModule_CachedMicroseconds() / 1e6);
@@ -275,12 +277,12 @@ static int BatchSend_SlotsRestore(RedisModuleCtx* ctx,
     }
 
     redisReply* rr = redisCommandArgv(conn->conn_ctx, 3 * n + 1, argv, argvlen);
-    if (rr == NULL || rr->type == REDIS_REPLY_ERROR) {
-        if (rr != NULL) {
-            RedisModule_ReplyWithError(ctx, rr->str);
-            freeReplyObject(rr);
-        }
-        return -1;
+    if (rr == NULL) {
+        return SLOTS_MGRT_ERR;
+    }
+    if (rr->type == REDIS_REPLY_ERROR) {
+        freeReplyObject(rr);
+        return SLOTS_MGRT_ERR;
     }
     freeReplyObject(rr);
 
@@ -302,12 +304,12 @@ static int Pipeline_Restore(RedisModuleCtx* ctx, db_slot_mgrt_connect* conn,
     redisReply* rr;
     for (int i = 0; i < n; i++) {
         int r = redisGetReply(conn->conn_ctx, (void**)&rr);
-        if (rr == NULL || rr->type == REDIS_REPLY_ERROR) {
-            if (rr != NULL) {
-                RedisModule_ReplyWithError(ctx, rr->str);
-                freeReplyObject(rr);
-            }
-            return -1;
+        if (r == REDIS_ERR || rr == NULL) {
+            return SLOTS_MGRT_ERR;
+        }
+        if (rr->type == REDIS_REPLY_ERROR) {
+            freeReplyObject(rr);
+            return SLOTS_MGRT_ERR;
         }
         freeReplyObject(rr);
     }
@@ -328,7 +330,7 @@ static int MGRT(RedisModuleCtx* ctx, const sds host, const sds port,
         = {.tv_sec = timeoutMS / 1000, .tv_usec = (timeoutMS % 1000) * 1000};
     db_slot_mgrt_connect* conn = SlotsMGRT_GetConnCtx(ctx, host, port, timeout);
     if (conn == NULL) {
-        return -1;
+        return SLOTS_MGRT_ERR;
     }
     // todo auth
 
@@ -338,18 +340,21 @@ static int MGRT(RedisModuleCtx* ctx, const sds host, const sds port,
     if (rr == NULL || rr->type == REDIS_REPLY_ERROR) {
         if (rr != NULL) {
             freeReplyObject(rr);
-            RedisModule_ReplyWithError(ctx, rr->str);
         }
-        return REDISMODULE_ERR;
+        return SLOTS_MGRT_ERR;
     }
     freeReplyObject(rr);
 
     sdstolower(mgrtType);
     if (sdscmp("withrestore", mgrtType) == 0) {
-        return Pipeline_Restore(ctx, conn, objs, n);
+        int ret = Pipeline_Restore(ctx, conn, objs, n);
+        SlotsMGRT_CloseConn(ctx, host, port);
+        return ret;
     }
 
-    return BatchSend_SlotsRestore(ctx, conn, objs, n);
+    int ret = BatchSend_SlotsRestore(ctx, conn, objs, n);
+    SlotsMGRT_CloseConn(ctx, host, port);
+    return ret;
 }
 
 // SlotsMGRT_OneKey
@@ -360,15 +365,16 @@ static int MGRT(RedisModuleCtx* ctx, const sds host, const sds port,
 // return value:
 //    -1 - error happens
 //   >=0 - # of success migration (0 or 1)
-static int SlotsMGRT_OneKey(RedisModuleCtx* ctx, const sds host, const sds port,
-                            time_t timeout, RedisModuleString* key,
-                            sds mgrtType) {
+int SlotsMGRT_OneKey(RedisModuleCtx* ctx, const char* host, const char* port,
+                     time_t timeout, RedisModuleString* key,
+                     const char* mgrtType) {
     RedisModuleCallReply* reply;
     reply = RedisModule_Call(ctx, "DUMP", "s", key);
     if (reply == NULL
         || RedisModule_CallReplyType(reply) != REDISMODULE_REPLY_STRING) {
         RedisModule_ReplyWithCallReply(ctx, reply);
-        return REDISMODULE_ERR;
+        RedisModule_FreeCallReply(reply);
+        return SLOTS_MGRT_ERR;
     }
     RedisModuleString* val = RedisModule_CreateStringFromCallReply(reply);
 
@@ -376,7 +382,8 @@ static int SlotsMGRT_OneKey(RedisModuleCtx* ctx, const sds host, const sds port,
     if (reply == NULL
         || RedisModule_CallReplyType(reply) != REDISMODULE_REPLY_INTEGER) {
         RedisModule_ReplyWithCallReply(ctx, reply);
-        return REDISMODULE_ERR;
+        RedisModule_FreeCallReply(reply);
+        return SLOTS_MGRT_ERR;
     }
     long long ttlms = RedisModule_CallReplyInteger(reply);
 
@@ -385,9 +392,10 @@ static int SlotsMGRT_OneKey(RedisModuleCtx* ctx, const sds host, const sds port,
     obj->val = val;
     obj->ttlms = ttlms;
     rdb_dump_obj* objs[] = {obj};
-    int ret = MGRT(ctx, host, port, timeout, objs, 1, mgrtType);
+    int ret = MGRT(ctx, (const sds)host, (const sds)port, timeout, objs, 1,
+                   (const sds)mgrtType);
     if (ret < 0) {
-        return REDISMODULE_ERR;
+        return SLOTS_MGRT_ERR;
     }
 
     if (ret > 0) {
@@ -395,13 +403,103 @@ static int SlotsMGRT_OneKey(RedisModuleCtx* ctx, const sds host, const sds port,
         if (reply == NULL
             || RedisModule_CallReplyType(reply) != REDISMODULE_REPLY_INTEGER) {
             RedisModule_ReplyWithCallReply(ctx, reply);
-            return REDISMODULE_ERR;
+            RedisModule_FreeCallReply(reply);
+            return SLOTS_MGRT_ERR;
         }
     }
 
+    RedisModule_FreeCallReply(reply);
     RedisModule_Free(obj);
     return ret;
 }
 
-// todo try to add thread pool to migrate, slotsrestore add thread pool to
-// restore , need lock shared obj.
+static int restoreOne(RedisModuleCtx* ctx, rdb_dump_obj* obj) {
+    RedisModuleCallReply* reply;
+    reply = RedisModule_Call(ctx, "RESTORE", "clc", obj->key, obj->ttlms,
+                             obj->val);
+    if (reply == NULL
+        || RedisModule_CallReplyType(reply) == REDISMODULE_REPLY_ERROR) {
+        RedisModule_FreeCallReply(reply);
+        return SLOTS_MGRT_ERR;
+    }
+
+    RedisModule_FreeCallReply(reply);
+    return 1;
+}
+
+static int restoreMutli(RedisModuleCtx* ctx, rdb_dump_obj* objs[], int n) {
+    for (int i = 0; i < n; i++) {
+        if (restoreOne(ctx, objs[i]) == SLOTS_MGRT_ERR) {
+            return SLOTS_MGRT_ERR;
+        }
+    }
+
+    return n;
+}
+
+static void restoreOneTask(void* arg) {
+    slots_restore_one_task_params* params
+        = (struct slots_restore_one_task_params*)arg;
+    params->result_code = restoreOne(params->ctx, params->obj);
+}
+
+static int restoreMutliWithThreadPool(RedisModuleCtx* ctx, rdb_dump_obj* objs[],
+                                      int n) {
+    // slots_restore_one_task_params* params
+    //     = RedisModule_Alloc(sizeof(slots_restore_one_task_params) * n);
+    slots_restore_one_task_params* params
+        = (slots_restore_one_task_params*)malloc(
+            sizeof(slots_restore_one_task_params) * n);
+
+    threadpool thpool = thpool_init(g_slots_meta_info.slots_restore_threads);
+    for (int i = 0; i < n; i++) {
+        params[i].ctx = ctx;
+        params[i].obj = objs[i];
+        params[i].result_code = 0;
+        thpool_add_work(thpool, restoreOneTask, (void*)&params[i]);
+    }
+    thpool_wait(thpool);
+    thpool_destroy(thpool);
+
+    for (int i = 0; i < n; i++) {
+        if (params[i].result_code == SLOTS_MGRT_ERR) {
+            free(params);
+            return SLOTS_MGRT_ERR;
+        }
+    }
+
+    // RedisModule_Free(params);
+    free(params);
+    return n;
+}
+
+int SlotsMGRT_Restore(RedisModuleCtx* ctx, rdb_dump_obj* objs[], int n) {
+    if (g_slots_meta_info.slots_restore_threads > 0) {
+        return restoreMutliWithThreadPool(ctx, objs, n);
+    }
+    return restoreMutli(ctx, objs, n);
+}
+
+int SlotsMGRT_SlotOneKey(RedisModuleCtx* ctx, const char* host,
+                         const char* port, time_t timeout, int slot,
+                         const char* mgrtType) {
+    int db = RedisModule_GetSelectedDb(ctx);
+    const m_dictEntry* de
+        = m_dictGetRandomKey(db_slot_infos[db].slotkey_tables[slot]);
+    if (de == NULL) {
+        return 0;
+    }
+    const sds k = dictGetKey(de);
+    RedisModuleString* key = RedisModule_CreateString(ctx, k, sdslen(k));
+    return SlotsMGRT_OneKey(ctx, host, port, timeout, key, mgrtType);
+}
+
+int SlotsMGRT_TagKeys(RedisModuleCtx* ctx, const char* host, const char* port,
+                      time_t timeout, RedisModuleString* key,
+                      const char* mgrtType) {
+}
+
+int SlotsMGRT_TagSlotKeys(RedisModuleCtx* ctx, const char* host,
+                          const char* port, time_t timeout, int slot,
+                          const char* mgrtType) {
+}

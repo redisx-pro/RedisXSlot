@@ -109,6 +109,7 @@ int SlotsTest_RedisCommand(RedisModuleCtx* ctx, RedisModuleString** argv,
     return REDISMODULE_OK;
 }
 
+/*---------------------- command implementation ------------------------------*/
 int SlotsHashKey_RedisCommand(RedisModuleCtx* ctx, RedisModuleString** argv,
                               int argc) {
     /* Use automatic memory management. */
@@ -515,12 +516,163 @@ static int redisModule_SlotsInit(RedisModuleCtx* ctx, RedisModuleString** argv,
     return REDISMODULE_OK;
 }
 
+/*-------------------------------- event handler  --------------------------*/
+int htNeedsResize(dict* dict) {
+    long long size, used;
+
+    size = dictSlots(dict);
+    used = dictSize(dict);
+    return (size > DICT_HT_INITIAL_SIZE
+            && (used * 100 / size < HASHTABLE_MIN_FILL));
+}
+/* If the percentage of used slots in the HT reaches HASHTABLE_MIN_FILL
+ * we resize the hash table to save memory */
+void tryResizeDbSlotHashTables(int dbid, int slot) {
+    if (htNeedsResize(db_slot_infos[dbid].slotkey_tables[slot]))
+        m_dictResize(db_slot_infos[dbid].slotkey_tables[slot]);
+}
+/* Our hash table implementation performs rehashing incrementally while
+ * we write/read from the hash table. Still if the server is idle, the hash
+ * table will use two tables for a long time. So we try to use 1 millisecond
+ * of CPU time at every call of this function to perform some rehashing.
+ *
+ * The function returns 1 if some rehashing was performed, otherwise 0
+ * is returned. */
+int incrementallyDbSlotRehash(int dbid, int slot) {
+    /* Keys dictionary */
+    if (dictIsRehashing(db_slot_infos[dbid].slotkey_tables[slot])) {
+        m_dictRehashMilliseconds(db_slot_infos[dbid].slotkey_tables[slot], 1);
+        return 1; /* already used our millisecond for this loop... */
+    }
+    return 0;
+}
+// serverCron --> databasesCron --> resize,rehash
+// moduleFireServerEvent REDISMODULE_EVENT_CRON_LOOP
+// sub REDISMODULE_EVENT_CRON_LOOP do resize,rehash db slot->keys dict
+// like tryResizeHashTables
+// like incrementallyRehash
+void CronLoopCallback(RedisModuleCtx* ctx, RedisModuleEvent e, uint64_t sub,
+                      void* data) {
+    REDISMODULE_NOT_USED(e);
+    REDISMODULE_NOT_USED(sub);
+    RedisModule_AutoMemory(ctx);
+
+    RedisModuleCronLoop* ei = data;
+    RedisModule_Log(ctx, "debug", "CronLoopCallback hz %d sub %llu", ei->hz,
+                    sub);
+    /* Perform hash tables rehashing if needed, but only if there are no
+     * other processes saving the DB on disk. Otherwise rehashing is bad
+     * as will cause a lot of copy-on-write of memory pages. */
+    // todo  need check have child pid (disk io)
+    // pr: https://github.com/redis/redis/pull/12482
+
+    /* We use global counters so if we stop the computation at a given
+     * DB we'll be able to start from the successive in the next
+     * cron loop iteration. */
+    static unsigned int resize_db = 0;
+    static unsigned int rehash_db = 0;
+
+    // ReSize
+    for (int db = 0; db < g_slots_meta_info.databases; db++) {
+        for (int slot = 0; slot < (int)g_slots_meta_info.hash_slots_size;
+             slot++) {
+            tryResizeDbSlotHashTables(resize_db % g_slots_meta_info.databases,
+                                      slot);
+            resize_db++;
+        }
+    }  // end for
+
+    // ReHash
+    if (!g_slots_meta_info.activerehashing) {
+        return;
+    }
+    for (int db = 0; db < g_slots_meta_info.databases; db++) {
+        for (int slot = 0; slot < (int)g_slots_meta_info.hash_slots_size;
+             slot++) {
+            int work_done = incrementallyDbSlotRehash(db, slot);
+            if (work_done) {
+                /* If the function did some work, stop here, we'll do
+                 * more at the next cron loop. */
+                return;
+            } else {
+                /* If this db didn't need rehash, we'll try the next one. */
+                rehash_db++;
+                rehash_db %= g_slots_meta_info.databases;
+            }
+        }
+    }  // end for
+}
+
+// when FLUSHALL, FLUSHDB or an internal flush happen;
+// emptyData --> Fire the flushdb modules event with sub event (start,
+// end) moduleFireServerEvent REDISMODULE_EVENT_FLUSHDB like
+// emptyDbStructure -> emptyDbAsync to async emtpySlot with threadpool
+void FlushdbCallback(RedisModuleCtx* ctx, RedisModuleEvent e, uint64_t sub,
+                     void* data) {
+    REDISMODULE_NOT_USED(e);
+    // REDISMODULE_NOT_USED(sub);
+    RedisModule_AutoMemory(ctx);
+
+    RedisModuleFlushInfo* fi = data;
+    RedisModule_Log(ctx, "debug", "FlushdbCallback dbnum %d sub %llu",
+                    fi->dbnum, sub);
+    // if (sub == REDISMODULE_SUBEVENT_FLUSHDB_START) {
+    // }
+    if (sub == REDISMODULE_SUBEVENT_FLUSHDB_END) {
+        for (int db = 0; db < (int)fi->dbnum; db++) {
+            for (int slot = 0; slot < (int)g_slots_meta_info.hash_slots_size;
+                 slot++) {
+                m_dictEmpty(db_slot_infos[db].slotkey_tables[slot], NULL);
+            }
+            if (db_slot_infos[db].tagged_key_list->length != 0) {
+                m_zslFree(db_slot_infos[db].tagged_key_list);
+                db_slot_infos[db].tagged_key_list = m_zslCreate();
+            }
+        }
+    }  // end if
+}
+
+// showtdown cmd -> prepareForShutdown -> finishShutdown
+// -> Fire the shutdown modules event REDISMODULE_EVENT_SHUTDOWN
+void ShutdownCallback(RedisModuleCtx* ctx, RedisModuleEvent e, uint64_t sub,
+                      void* data) {
+    REDISMODULE_NOT_USED(e);
+    REDISMODULE_NOT_USED(data);
+    REDISMODULE_NOT_USED(sub);
+
+    RedisModule_Log(ctx, "warning", "ShutdownCallback module-event-%s",
+                    "shutdown");
+
+    for (int db = 0; db < g_slots_meta_info.databases; db++) {
+        for (int slot = 0; slot < (int)g_slots_meta_info.hash_slots_size;
+             slot++) {
+            m_dictRelease(db_slot_infos[db].slotkey_tables[slot]);
+        }
+        m_zslFree(db_slot_infos[db].tagged_key_list);
+    }
+}
+
+/*-------------------------------- notify handler
+ * --------------------------*/
 int NotifyTypeChangeCallback(RedisModuleCtx* ctx, int type, const char* event,
                              RedisModuleString* key) {
     RedisModule_AutoMemory(ctx);
+    int db = RedisModule_GetSelectedDb(ctx);
+    const char* kstr = RedisModule_StringPtrLen(key, NULL);
     RedisModule_Log(ctx, "debug",
-                    "NotifyTypeChangeCallback event type %d, event %s, key %s",
-                    type, event, RedisModule_StringPtrLen(key, NULL));
+                    "NotifyTypeChangeCallback db %d event type %d, "
+                    "event %s, key %s",
+                    db, type, event, kstr);
+    do {
+        uint32_t crc;
+        int hastag;
+        int slot = slots_num(kstr, &crc, &hastag);
+        m_dictAdd(db_slot_infos[db].slotkey_tables[slot], key,
+                  (void*)(long)crc);
+        if (hastag) {
+            m_zslInsert(db_slot_infos[db].tagged_key_list, (long long)crc, key);
+        }
+    } while (0);
 
     return REDISMODULE_OK;
 }
@@ -528,15 +680,30 @@ int NotifyTypeChangeCallback(RedisModuleCtx* ctx, int type, const char* event,
 int NotifyGenericCallback(RedisModuleCtx* ctx, int type, const char* event,
                           RedisModuleString* key) {
     RedisModule_AutoMemory(ctx);
-    RedisModule_Log(ctx, "debug",
-                    "NotifyGenericCallback event type %d, event %s, key %s",
-                    type, event, RedisModule_StringPtrLen(key, NULL));
+    int db = RedisModule_GetSelectedDb(ctx);
+    const char* kstr = RedisModule_StringPtrLen(key, NULL);
+    RedisModule_Log(
+        ctx, "debug",
+        "NotifyGenericCallback db %d event type %d, event %s, key %s", db, type,
+        event, kstr);
+    do {
+        uint32_t crc;
+        int hastag;
+        int slot = slots_num(kstr, &crc, &hastag);
+        if (m_dictDelete(db_slot_infos[db].slotkey_tables[slot], key)
+            == DICT_OK) {
+            if (hastag) {
+                m_zslDelete(db_slot_infos[db].tagged_key_list, (long long)crc,
+                            key, NULL);
+            }
+        }
+    } while (0);
 
     return REDISMODULE_OK;
 }
 
-/* This function must be present on each Redis module. It is used in order
- * to register the commands into the Redis server. */
+/* This function must be present on each Redis module. It is used in
+ * order to register the commands into the Redis server. */
 int RedisModule_OnLoad(RedisModuleCtx* ctx, RedisModuleString** argv,
                        int argc) {
     if (RedisModule_Init(ctx, "redisxslot", REDISXSLOT_APIVER_1,
@@ -561,6 +728,13 @@ int RedisModule_OnLoad(RedisModuleCtx* ctx, RedisModuleString** argv,
         printf("redisModule_SlotsInit fail! \n");
         return REDISMODULE_ERR;
     }
+
+    RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_CronLoop,
+                                       CronLoopCallback);
+    RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_FlushDB,
+                                       FlushdbCallback);
+    RedisModule_SubscribeToServerEvent(ctx, RedisModuleEvent_Shutdown,
+                                       ShutdownCallback);
 
     RedisModule_SubscribeToKeyspaceEvents(
         ctx,

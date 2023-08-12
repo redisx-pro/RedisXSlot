@@ -541,7 +541,7 @@ int SlotsMGRT_SlotOneKey(RedisModuleCtx* ctx, const char* host,
     int ret = SlotsMGRT_OneKey(ctx, host, port, timeout, key, mgrtType);
     if (ret > 0) {
         // should sub cron_loop(server loop) to del
-        m_dictDelete(db_slot_infos[db].slotkey_tables[slot], k);
+        // m_dictDelete(db_slot_infos[db].slotkey_tables[slot], k);
     }
     RedisModule_FreeString(ctx, key);
     return ret;
@@ -617,7 +617,7 @@ int SlotsMGRT_TagSlotKeys(RedisModuleCtx* ctx, const char* host,
     int ret = SlotsMGRT_TagKeys(ctx, host, port, timeout, key, mgrtType);
     if (ret > 0) {
         // should sub cron_loop(server loop) to del
-        m_dictDelete(db_slot_infos[db].slotkey_tables[slot], k);
+        // m_dictDelete(db_slot_infos[db].slotkey_tables[slot], k);
     }
     RedisModule_FreeString(ctx, key);
     return ret;

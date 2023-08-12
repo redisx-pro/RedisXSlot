@@ -38,6 +38,9 @@
 #define SLOTS_MGRT_ERR -1
 #define MAX_NUM_THREADS 128
 #define REDISXSLOT_APIVER_1 1
+/* Hash table parameters for rehash*/
+#define HASHTABLE_MIN_FILL 10           /* Minimal hash table fill 10% */
+#define HASHTABLE_MAX_LOAD_FACTOR 1.618 /* Maximum hash table load factor. */
 
 // define macro
 #define UNUSED(V) ((void)V)
@@ -61,6 +64,8 @@ typedef struct _slots_meta_info {
     uint32_t hash_slots_size;
     // from config databases
     int databases;
+    // from config activerehashing yes(1)/no(0)
+    int activerehashing;
     // thread pool size (mgrt restore)
     int slots_mgrt_threads;
     int slots_restore_threads;

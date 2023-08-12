@@ -397,6 +397,21 @@ static int getRdbDumpObjs(RedisModuleCtx* ctx, RedisModuleString* keys[], int n,
     return n;
 }
 
+static int delKeys(RedisModuleCtx* ctx, RedisModuleString* keys[], int n) {
+    RedisModuleCallReply* reply;
+    for (int i = 0; i < n; i++) {
+        reply = RedisModule_Call(ctx, "DEL", "s", keys[i]);
+        if (reply == NULL
+            || RedisModule_CallReplyType(reply) != REDISMODULE_REPLY_INTEGER) {
+            // RedisModule_ReplyWithCallReply(ctx, reply);
+            RedisModule_FreeCallReply(reply);
+            return SLOTS_MGRT_ERR;
+        }
+    }
+    RedisModule_FreeCallReply(reply);
+    return n;
+}
+
 static int migrateKeys(RedisModuleCtx* ctx, const sds host, const sds port,
                        time_t timeoutMS, RedisModuleString* keys[], int n,
                        const sds mgrtType) {
@@ -422,17 +437,9 @@ static int migrateKeys(RedisModuleCtx* ctx, const sds host, const sds port,
     RedisModule_Free(objs);
 
     // del
-    RedisModuleCallReply* reply;
-    for (int i = 0; i < n; i++) {
-        reply = RedisModule_Call(ctx, "DEL", "s", keys[i]);
-        if (reply == NULL
-            || RedisModule_CallReplyType(reply) != REDISMODULE_REPLY_INTEGER) {
-            RedisModule_ReplyWithCallReply(ctx, reply);
-            RedisModule_FreeCallReply(reply);
-            return SLOTS_MGRT_ERR;
-        }
+    if (delKeys(ctx, keys, n) == SLOTS_MGRT_ERR) {
+        return SLOTS_MGRT_ERR;
     }
-    RedisModule_FreeCallReply(reply);
 
     return n;
 }
@@ -588,9 +595,12 @@ int SlotsMGRT_TagKeys(RedisModuleCtx* ctx, const char* host, const char* port,
         }
         m_listDelNode(l, head);
     }
+    m_listRelease(l);
 
-    return migrateKeys(ctx, (const sds)host, (const sds)port, timeout, keys, n,
-                       (const sds)mgrtType);
+    int ret = migrateKeys(ctx, (const sds)host, (const sds)port, timeout, keys,
+                          n, (const sds)mgrtType);
+    RedisModule_Free(keys);
+    return ret;
 }
 
 int SlotsMGRT_TagSlotKeys(RedisModuleCtx* ctx, const char* host,
@@ -611,4 +621,52 @@ int SlotsMGRT_TagSlotKeys(RedisModuleCtx* ctx, const char* host,
     }
     RedisModule_FreeString(ctx, key);
     return ret;
+}
+
+static void slotsScanRedisModuleKeyCallback(void* l, const m_dictEntry* de) {
+    RedisModuleString* key = dictGetKey(de);
+    m_listAddNodeTail((list*)l, key);
+}
+
+void SlotsMGRT_Scan(RedisModuleCtx* ctx, int slot, unsigned long count,
+                    unsigned long cursor, list* l) {
+    int db = RedisModule_GetSelectedDb(ctx);
+    dict* d = db_slot_infos[db].slotkey_tables[slot];
+    long loops = count * 10;  // see dictScan
+    do {
+        cursor
+            = m_dictScan(d, cursor, slotsScanRedisModuleKeyCallback, NULL, l);
+        loops--;
+    } while (cursor != 0 && loops > 0 && listLength(l) < count);
+}
+
+int SlotsMGRT_DelSlotKeys(RedisModuleCtx* ctx, int db, int slots[], int n) {
+    for (int i = 0; i < n; i++) {
+        dict* d = db_slot_infos[db].slotkey_tables[slots[i]];
+        int s = dictSize(d);
+        if (s == 0) {
+            continue;
+        }
+        list* l = m_listCreate();
+        unsigned long cursor = 0;
+        do {
+            cursor = m_dictScan(d, cursor, slotsScanRedisModuleKeyCallback,
+                                NULL, l);
+            while (1) {
+                m_listNode* head = listFirst(l);
+                if (head == NULL) {
+                    break;
+                }
+                RedisModuleString* key = listNodeValue(head);
+                if (delKeys(ctx, (RedisModuleString*[]){key}, 1)
+                    == SLOTS_MGRT_ERR) {
+                    return SLOTS_MGRT_ERR;
+                }
+                m_listDelNode(l, head);
+            }
+        } while (cursor != 0);
+        m_listRelease(l);
+    }
+
+    return n;
 }

@@ -26,6 +26,7 @@
 // define error
 #define REDISXSLOT_ERRORMSG_SYNTAX "ERR syntax error"
 #define REDISXSLOT_ERRORMSG_MGRT "ERR migrate error"
+#define REDISXSLOT_ERRORMSG_DEL "ERR del error"
 
 // define const
 #define DEFAULT_HASH_SLOTS_MASK 0x000003ff
@@ -45,7 +46,8 @@
         if (RedisModule_CreateCommand(ctx, name, tgt, attr, firstkey, lastkey, \
                                       keystep)                                 \
             != REDISMODULE_OK) {                                               \
-            RedisModule_Log(ctx, "notice", "reg cmd error");                   \
+            RedisModule_Log(ctx, REDISMODULE_LOGLEVEL_WARNING,                 \
+                            "reg cmd error");                                  \
             return REDISMODULE_ERR;                                            \
         }                                                                      \
     } while (0);
@@ -125,6 +127,9 @@ int SlotsMGRT_TagSlotKeys(RedisModuleCtx* ctx, const char* host,
                           const char* port, time_t timeout, int slot,
                           const char* mgrtType);
 int SlotsMGRT_Restore(RedisModuleCtx* ctx, rdb_dump_obj* objs[], int n);
+void SlotsMGRT_Scan(RedisModuleCtx* ctx, int slot, unsigned long count,
+                    unsigned long cursor, list* l);
+int SlotsMGRT_DelSlotKeys(RedisModuleCtx* ctx, int db, int slots[], int n);
 
 // declare static function to inner use (private prototypes)
 static const char* slots_tag(const char* s, int* plen);

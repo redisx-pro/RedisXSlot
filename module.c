@@ -33,7 +33,7 @@
 #include "redisxslot.h"
 
 // todo:
-// 1. sub notify event hook to add/remove dict (db slot keys)
+// 1. sub notify event hook to add/remove dict/skiplist (db slot keys)
 // 2. sub CronLoop event hook to resize/rehash dict (db slot keys)
 // 3. db slot key meta info save to rdb, load from rdb
 
@@ -317,8 +317,8 @@ int SlotsMGRTTagSlot_RedisCommand(RedisModuleCtx* ctx, RedisModuleString** argv,
         RedisModule_ReplyWithError(ctx, REDISXSLOT_ERRORMSG_MGRT);
         return REDISMODULE_ERR;
     }
-    RedisModule_ReplyWithLongLong(ctx, r);
 
+    RedisModule_ReplyWithLongLong(ctx, r);
     return REDISMODULE_OK;
 }
 
@@ -333,13 +333,28 @@ int SlotsDel_RedisCommand(RedisModuleCtx* ctx, RedisModuleString** argv,
     if (argc < 2)
         return RedisModule_WrongArity(ctx);
 
+    int slots[argc - 1];
     for (int i = 1; i < argc; i++) {
         long long slot = 0;
         if (RedisModule_StringToLongLong(argv[i], &slot) != REDISMODULE_OK) {
             RedisModule_ReplyWithError(ctx, REDISXSLOT_ERRORMSG_SYNTAX);
             return REDISMODULE_ERR;
         }
-        // todo  del slot key
+        slots[i - 1] = (int)slot;
+    }
+
+    int db = RedisModule_GetSelectedDb(ctx);
+    if (SlotsMGRT_DelSlotKeys(ctx, db, slots, argc - 1) == SLOTS_MGRT_ERR) {
+        RedisModule_ReplyWithError(ctx, REDISXSLOT_ERRORMSG_DEL);
+        return REDISMODULE_ERR;
+    }
+
+    RedisModule_ReplyWithArray(ctx, argc - 1);
+    for (int i = 0; i < argc - 1; i++) {
+        RedisModule_ReplyWithArray(ctx, 2);
+        RedisModule_ReplyWithLongLong(ctx, slots[i]);
+        RedisModule_ReplyWithLongLong(
+            ctx, dictSize(db_slot_infos[db].slotkey_tables[slots[i]]));
     }
 
     return REDISMODULE_OK;
@@ -379,7 +394,7 @@ int SlotsRestore_RedisCommand(RedisModuleCtx* ctx, RedisModuleString** argv,
         return REDISMODULE_ERR;
     }
 
-    RedisModule_ReplyWithLongDouble(ctx, ret);
+    RedisModule_ReplyWithLongLong(ctx, ret);
     RedisModule_Free(objs);
     return REDISMODULE_OK;
 }
@@ -425,7 +440,23 @@ int SlotsScan_RedisCommand(RedisModuleCtx* ctx, RedisModuleString** argv,
         }
         count = v;
     }
-    // todo scan
+
+    list* l = m_listCreate();
+    SlotsMGRT_Scan(ctx, (int)slot, (unsigned long)count, (unsigned long)cursor,
+                   l);
+    RedisModule_ReplyWithArray(ctx, 2);
+    RedisModule_ReplyWithLongLong(ctx, cursor);
+    RedisModule_ReplyWithArray(ctx, listLength(l));
+    do {
+        m_listNode* head = listFirst(l);
+        if (head == NULL) {
+            break;
+        }
+        RedisModuleString* key = listNodeValue(head);
+        RedisModule_ReplyWithString(ctx, key);
+        m_listDelNode(l, head);
+    } while (1);
+    m_listRelease(l);
 
     return REDISMODULE_OK;
 }
@@ -484,6 +515,26 @@ static int redisModule_SlotsInit(RedisModuleCtx* ctx, RedisModuleString** argv,
     return REDISMODULE_OK;
 }
 
+int NotifyTypeChangeCallback(RedisModuleCtx* ctx, int type, const char* event,
+                             RedisModuleString* key) {
+    RedisModule_AutoMemory(ctx);
+    RedisModule_Log(ctx, "debug",
+                    "NotifyTypeChangeCallback event type %d, event %s, key %s",
+                    type, event, RedisModule_StringPtrLen(key, NULL));
+
+    return REDISMODULE_OK;
+}
+
+int NotifyGenericCallback(RedisModuleCtx* ctx, int type, const char* event,
+                          RedisModuleString* key) {
+    RedisModule_AutoMemory(ctx);
+    RedisModule_Log(ctx, "debug",
+                    "NotifyGenericCallback event type %d, event %s, key %s",
+                    type, event, RedisModule_StringPtrLen(key, NULL));
+
+    return REDISMODULE_OK;
+}
+
 /* This function must be present on each Redis module. It is used in order
  * to register the commands into the Redis server. */
 int RedisModule_OnLoad(RedisModuleCtx* ctx, RedisModuleString** argv,
@@ -510,6 +561,16 @@ int RedisModule_OnLoad(RedisModuleCtx* ctx, RedisModuleString** argv,
         printf("redisModule_SlotsInit fail! \n");
         return REDISMODULE_ERR;
     }
+
+    RedisModule_SubscribeToKeyspaceEvents(
+        ctx,
+        REDISMODULE_NOTIFY_HASH | REDISMODULE_NOTIFY_SET
+            | REDISMODULE_NOTIFY_STRING | REDISMODULE_NOTIFY_LIST
+            | REDISMODULE_NOTIFY_ZSET,
+        NotifyTypeChangeCallback);
+
+    RedisModule_SubscribeToKeyspaceEvents(ctx, REDISMODULE_NOTIFY_GENERIC,
+                                          NotifyGenericCallback);
 
     CREATE_ROMCMD("slotshashkey", SlotsHashKey_RedisCommand, 0, 0, 0);
     CREATE_ROMCMD("slotsinfo", SlotsInfo_RedisCommand, 0, 0, 0);

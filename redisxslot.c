@@ -500,7 +500,8 @@ static int restoreMutliWithThreadPool(RedisModuleCtx* ctx, rdb_dump_obj* objs[],
 
     threadpool thpool = thpool_init(g_slots_meta_info.slots_restore_threads);
     for (int i = 0; i < n; i++) {
-        params[i].ctx = ctx;
+        // params[i].ctx = ctx;
+        params[i].ctx = RedisModule_GetThreadSafeContext(NULL);
         params[i].obj = objs[i];
         params[i].result_code = 0;
         thpool_add_work(thpool, restoreOneTask, (void*)&params[i]);
@@ -509,8 +510,13 @@ static int restoreMutliWithThreadPool(RedisModuleCtx* ctx, rdb_dump_obj* objs[],
     thpool_destroy(thpool);
 
     for (int i = 0; i < n; i++) {
+        RedisModule_FreeThreadSafeContext(params[i].ctx);
+    }
+
+    for (int i = 0; i < n; i++) {
         if (params[i].result_code == SLOTS_MGRT_ERR) {
-            free(params);
+            RedisModule_Free(params);
+            // free(params);
             return SLOTS_MGRT_ERR;
         }
     }

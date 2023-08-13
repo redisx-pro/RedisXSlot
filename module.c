@@ -621,16 +621,13 @@ void CronLoopCallback(RedisModuleCtx* ctx, RedisModuleEvent e, uint64_t sub,
 void FlushdbCallback(RedisModuleCtx* ctx, RedisModuleEvent e, uint64_t sub,
                      void* data) {
     REDISMODULE_NOT_USED(e);
-    // REDISMODULE_NOT_USED(sub);
+    REDISMODULE_NOT_USED(sub);
     RedisModule_AutoMemory(ctx);
 
     RedisModuleFlushInfo* fi = data;
-    RedisModule_Log(ctx, "debug", "FlushdbCallback dbnum %d sub %lu", fi->dbnum,
-                    sub);
-    // if (sub == REDISMODULE_SUBEVENT_FLUSHDB_START) {
-    // }
-    if (sub == REDISMODULE_SUBEVENT_FLUSHDB_END) {
-        for (int db = 0; db < (int)fi->dbnum; db++) {
+    if (sub == REDISMODULE_SUBEVENT_FLUSHDB_START) {
+        if (fi->dbnum != -1) {
+            int db = (int)fi->dbnum;
             for (int slot = 0; slot < (int)g_slots_meta_info.hash_slots_size;
                  slot++) {
                 m_dictEmpty(db_slot_infos[db].slotkey_tables[slot], NULL);
@@ -639,8 +636,21 @@ void FlushdbCallback(RedisModuleCtx* ctx, RedisModuleEvent e, uint64_t sub,
                 m_zslFree(db_slot_infos[db].tagged_key_list);
                 db_slot_infos[db].tagged_key_list = m_zslCreate();
             }
-        }
-    }  // end if
+        } else {
+            for (int db = 0; db < g_slots_meta_info.databases; db++) {
+                for (int slot = 0;
+                     slot < (int)g_slots_meta_info.hash_slots_size; slot++) {
+                    m_dictEmpty(db_slot_infos[db].slotkey_tables[slot], NULL);
+                }
+                if (db_slot_infos[db].tagged_key_list->length != 0) {
+                    m_zslFree(db_slot_infos[db].tagged_key_list);
+                    db_slot_infos[db].tagged_key_list = m_zslCreate();
+                }
+            }  // end for
+        }      // end if
+    }          // end if
+    // if (sub == REDISMODULE_SUBEVENT_FLUSHDB_END) {
+    // }
 }
 
 // showtdown cmd -> prepareForShutdown -> finishShutdown
@@ -666,7 +676,7 @@ void ShutdownCallback(RedisModuleCtx* ctx, RedisModuleEvent e, uint64_t sub,
 /*------------------------------ notify handler --------------------------*/
 int NotifyTypeChangeCallback(RedisModuleCtx* ctx, int type, const char* event,
                              RedisModuleString* key) {
-    RedisModule_AutoMemory(ctx);
+    // RedisModule_AutoMemory(ctx);
     int db = RedisModule_GetSelectedDb(ctx);
     const char* kstr = RedisModule_StringPtrLen(key, NULL);
     RedisModule_Log(ctx, "debug",
@@ -677,10 +687,13 @@ int NotifyTypeChangeCallback(RedisModuleCtx* ctx, int type, const char* event,
         uint32_t crc;
         int hastag;
         int slot = slots_num(kstr, &crc, &hastag);
-        m_dictAdd(db_slot_infos[db].slotkey_tables[slot], key,
-                  (void*)(long)crc);
-        if (hastag) {
-            m_zslInsert(db_slot_infos[db].tagged_key_list, (long long)crc, key);
+        if (m_dictAdd(db_slot_infos[db].slotkey_tables[slot], key,
+                      (void*)(long)crc)
+            == DICT_OK) {
+            if (hastag) {
+                m_zslInsert(db_slot_infos[db].tagged_key_list, (long long)crc,
+                            key);
+            }
         }
     } while (0);
 
@@ -689,7 +702,7 @@ int NotifyTypeChangeCallback(RedisModuleCtx* ctx, int type, const char* event,
 
 int NotifyGenericCallback(RedisModuleCtx* ctx, int type, const char* event,
                           RedisModuleString* key) {
-    RedisModule_AutoMemory(ctx);
+    // RedisModule_AutoMemory(ctx);
     int db = RedisModule_GetSelectedDb(ctx);
     const char* kstr = RedisModule_StringPtrLen(key, NULL);
     RedisModule_Log(

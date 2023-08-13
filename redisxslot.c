@@ -62,7 +62,7 @@ void slots_init(RedisModuleCtx* ctx, uint32_t hash_slots_size, int databases,
     db_slot_infos = RedisModule_Alloc(sizeof(db_slot_info) * databases);
     for (int j = 0; j < databases; j++) {
         db_slot_infos[j].slotkey_tables
-            = RedisModule_Alloc(sizeof(dict) * hash_slots_size);
+            = RedisModule_Alloc(sizeof(dict*) * hash_slots_size);
         for (uint32_t i = 0; i < hash_slots_size; i++) {
             db_slot_infos[j].slotkey_tables[i]
                 = m_dictCreate(&hashSlotDictType, NULL);
@@ -77,6 +77,9 @@ void slots_init(RedisModuleCtx* ctx, uint32_t hash_slots_size, int databases,
 void slots_free(RedisModuleCtx* ctx) {
     for (int j = 0; j < g_slots_meta_info.databases; j++) {
         if (db_slot_infos != NULL && db_slot_infos[j].slotkey_tables != NULL) {
+            for (uint32_t i = 0; i < g_slots_meta_info.hash_slots_size; i++) {
+                m_dictRelease(db_slot_infos[j].slotkey_tables[i]);
+            }
             RedisModule_Free(db_slot_infos[j].slotkey_tables);
             db_slot_infos[j].slotkey_tables = NULL;
         }

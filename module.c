@@ -502,8 +502,8 @@ static int redisModule_SlotsInit(RedisModuleCtx* ctx, RedisModuleString** argv,
                == REDISMODULE_ERR) {
         return REDISMODULE_ERR;
     }
-    if (num_threads <= 0) {
-        printf("[ERROR] ModuleLoaded threads num %lld <=0\n", num_threads);
+    if (num_threads < 0) {
+        printf("[ERROR] ModuleLoaded threads num %lld <0\n", num_threads);
         return REDISMODULE_ERR;
     }
     if (num_threads > MAX_NUM_THREADS) {
@@ -546,20 +546,8 @@ int incrementallyDbSlotRehash(int dbid, int slot) {
     }
     return 0;
 }
-// serverCron --> databasesCron --> resize,rehash
-// moduleFireServerEvent REDISMODULE_EVENT_CRON_LOOP
-// sub REDISMODULE_EVENT_CRON_LOOP do resize,rehash db slot->keys dict
-// like tryResizeHashTables
-// like incrementallyRehash
-void CronLoopCallback(RedisModuleCtx* ctx, RedisModuleEvent e, uint64_t sub,
-                      void* data) {
-    REDISMODULE_NOT_USED(e);
-    REDISMODULE_NOT_USED(sub);
-    RedisModule_AutoMemory(ctx);
 
-    RedisModuleCronLoop* ei = data;
-    RedisModule_Log(ctx, "debug", "CronLoopCallback hz %d sub %llu", ei->hz,
-                    sub);
+void dbSlotCron(void) {
     /* Perform hash tables rehashing if needed, but only if there are no
      * other processes saving the DB on disk. Otherwise rehashing is bad
      * as will cause a lot of copy-on-write of memory pages. */
@@ -603,10 +591,33 @@ void CronLoopCallback(RedisModuleCtx* ctx, RedisModuleEvent e, uint64_t sub,
     }  // end for
 }
 
+// serverCron --> databasesCron --> resize,rehash
+// moduleFireServerEvent REDISMODULE_EVENT_CRON_LOOP
+// sub REDISMODULE_EVENT_CRON_LOOP do resize,rehash db slot->keys dict
+// like tryResizeHashTables
+// like incrementallyRehash
+void CronLoopCallback(RedisModuleCtx* ctx, RedisModuleEvent e, uint64_t sub,
+                      void* data) {
+    REDISMODULE_NOT_USED(e);
+    REDISMODULE_NOT_USED(sub);
+    RedisModule_AutoMemory(ctx);
+
+    RedisModuleCronLoop* ei = data;
+    RedisModule_Log(ctx, "debug", "CronLoopCallback hz %d sub %lu", ei->hz,
+                    sub);
+    dbSlotCron();
+    run_with_period(1000, ei->hz) {
+        SlotsMGRT_CloseTimedoutConns(ctx);
+    }
+
+    g_slots_meta_info.cronloops++;
+}
+
 // when FLUSHALL, FLUSHDB or an internal flush happen;
-// emptyData --> Fire the flushdb modules event with sub event (start,
-// end) moduleFireServerEvent REDISMODULE_EVENT_FLUSHDB like
-// emptyDbStructure -> emptyDbAsync to async emtpySlot with threadpool
+// emptyData --> Fire the flushdb modules event with sub event (start,end)
+// moduleFireServerEvent REDISMODULE_EVENT_FLUSHDB
+// like emptyDbStructure
+// emptyDbAsync to async emtpySlot with threadpool
 void FlushdbCallback(RedisModuleCtx* ctx, RedisModuleEvent e, uint64_t sub,
                      void* data) {
     REDISMODULE_NOT_USED(e);
@@ -614,8 +625,8 @@ void FlushdbCallback(RedisModuleCtx* ctx, RedisModuleEvent e, uint64_t sub,
     RedisModule_AutoMemory(ctx);
 
     RedisModuleFlushInfo* fi = data;
-    RedisModule_Log(ctx, "debug", "FlushdbCallback dbnum %d sub %llu",
-                    fi->dbnum, sub);
+    RedisModule_Log(ctx, "debug", "FlushdbCallback dbnum %d sub %lu", fi->dbnum,
+                    sub);
     // if (sub == REDISMODULE_SUBEVENT_FLUSHDB_START) {
     // }
     if (sub == REDISMODULE_SUBEVENT_FLUSHDB_END) {
@@ -652,8 +663,7 @@ void ShutdownCallback(RedisModuleCtx* ctx, RedisModuleEvent e, uint64_t sub,
     }
 }
 
-/*-------------------------------- notify handler
- * --------------------------*/
+/*------------------------------ notify handler --------------------------*/
 int NotifyTypeChangeCallback(RedisModuleCtx* ctx, int type, const char* event,
                              RedisModuleString* key) {
     RedisModule_AutoMemory(ctx);

@@ -10,6 +10,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 #include <syslog.h>
 #include <time.h>
 #include <unistd.h>
@@ -38,7 +39,7 @@
 #define SLOTS_MGRT_ERR -1
 #define MAX_NUM_THREADS 128
 #define REDISXSLOT_APIVER_1 1
-/* Hash table parameters for rehash*/
+/* Hash table parameters for resize */
 #define HASHTABLE_MIN_FILL 10           /* Minimal hash table fill 10% */
 #define HASHTABLE_MAX_LOAD_FACTOR 1.618 /* Maximum hash table load factor. */
 
@@ -58,6 +59,12 @@
     CREATE_CMD(name, tgt, "readonly", firstkey, lastkey, keystep);
 #define CREATE_WRMCMD(name, tgt, firstkey, lastkey, keystep) \
     CREATE_CMD(name, tgt, "write deny-oom", firstkey, lastkey, keystep);
+/* Using the following macro you can run code inside serverCron() with the
+ * specified period, specified in milliseconds.
+ * The actual resolution depends on server.hz. */
+#define run_with_period(_ms_, _hz_) \
+    if (((_ms_) <= 1000 / _hz_)     \
+        || !(g_slots_meta_info.cronloops % ((_ms_) / (1000 / _hz_))))
 
 // define struct type
 typedef struct _slots_meta_info {
@@ -66,6 +73,8 @@ typedef struct _slots_meta_info {
     int databases;
     // from config activerehashing yes(1)/no(0)
     int activerehashing;
+    // cronloop event callback cn
+    int cronloops;
     // thread pool size (mgrt restore)
     int slots_mgrt_threads;
     int slots_restore_threads;
@@ -109,9 +118,6 @@ typedef struct _slots_restore_one_task_params {
 extern slots_meta_info g_slots_meta_info;
 extern db_slot_info* db_slot_infos;
 
-// declare defined static var to inner use (private prototypes)
-static RedisModuleDict* slotsmgrt_cached_ctx_connects;
-
 // declare api function
 void crc32_init();
 uint32_t crc32_checksum(const char* buf, int len);
@@ -135,8 +141,6 @@ int SlotsMGRT_Restore(RedisModuleCtx* ctx, rdb_dump_obj* objs[], int n);
 void SlotsMGRT_Scan(RedisModuleCtx* ctx, int slot, unsigned long count,
                     unsigned long cursor, list* l);
 int SlotsMGRT_DelSlotKeys(RedisModuleCtx* ctx, int db, int slots[], int n);
-
-// declare static function to inner use (private prototypes)
-static const char* slots_tag(const char* s, int* plen);
+void SlotsMGRT_CloseTimedoutConns(RedisModuleCtx* ctx);
 
 #endif /* REDISXSLOT_H */

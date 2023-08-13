@@ -3,6 +3,11 @@
 slots_meta_info g_slots_meta_info;
 db_slot_info* db_slot_infos;
 
+// declare defined static var to inner use (private prototypes)
+static RedisModuleDict* slotsmgrt_cached_ctx_connects;
+// declare static function to inner use (private prototypes)
+static const char* slots_tag(const char* s, int* plen);
+
 uint64_t dictModuleStrHash(const void* key) {
     size_t len;
     const char* buf = RedisModule_StringPtrLen(key, &len);
@@ -50,6 +55,7 @@ void slots_init(RedisModuleCtx* ctx, uint32_t hash_slots_size, int databases,
 
     g_slots_meta_info.hash_slots_size = hash_slots_size;
     g_slots_meta_info.databases = databases;
+    g_slots_meta_info.cronloops = 0;
     g_slots_meta_info.slots_mgrt_threads = num_threads;
     g_slots_meta_info.slots_restore_threads = num_threads;
 
@@ -215,7 +221,7 @@ static void SlotsMGRT_CloseConn(RedisModuleCtx* ctx, const sds host,
 // SlotsMGRT_CloseTimedoutConns
 // like migrateCloseTimedoutSockets
 // for server cron job to check timeout connect
-static void SlotsMGRT_CloseTimedoutConns(RedisModuleCtx* ctx) {
+void SlotsMGRT_CloseTimedoutConns(RedisModuleCtx* ctx) {
     // maybe use cached server cron time, a little faster.
     // time_t unixtime = time(NULL);
     time_t unixtime = (time_t)(RedisModule_CachedMicroseconds() / 1e6);
@@ -490,6 +496,7 @@ static void restoreOneTask(void* arg) {
 
 static int restoreMutliWithThreadPool(RedisModuleCtx* ctx, rdb_dump_obj* objs[],
                                       int n) {
+    UNUSED(ctx);
     // use redis dep's jemalloc allcator instead of libc allocator (often
     // prevents fragmentation problems)
     slots_restore_one_task_params* params

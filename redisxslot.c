@@ -265,23 +265,27 @@ static int BatchSend_SlotsRestore(RedisModuleCtx* ctx,
                                   db_slot_mgrt_connect* conn,
                                   rdb_dump_obj* objs[], int n) {
     UNUSED(ctx);
-    const char* argv[3 * n + 1];
-    size_t argvlen[3 * n + 1];
+    // const char* argv[3 * n + 1];
+    const char** argv = RedisModule_Alloc(sizeof(char*) * 3 * n + 1);
+    // size_t argvlen[3 * n + 1];
+    size_t* argvlen = RedisModule_Alloc(sizeof(size_t) * 3 * n + 1);
+    argv[0] = "SLOTSRESTORE";
+    argvlen[0] = 12;
     for (int i = 0; i < n; i++) {
         size_t ksz, vsz;
         const char* k = RedisModule_StringPtrLen(objs[i]->key, &ksz);
         const char* v = RedisModule_StringPtrLen(objs[i]->val, &vsz);
-        argv[i * 3 + 0] = k;
-        argvlen[i * 3 + 0] = ksz;
+        argv[i * 3 + 1] = k;
+        argvlen[i * 3 + 1] = ksz;
 
         time_t ttlms = objs[i]->ttlms;
         char buf[REDIS_LONGSTR_SIZE];
         int len = m_ll2string(buf, sizeof(buf), (long)ttlms);
-        argv[i * 3 + 1] = buf;
-        argvlen[i * 3 + 1] = (size_t)len;
+        argv[i * 3 + 2] = buf;
+        argvlen[i * 3 + 2] = (size_t)len;
 
-        argv[i * 3 + 2] = v;
-        argvlen[i * 3 + 2] = vsz;
+        argv[i * 3 + 3] = v;
+        argvlen[i * 3 + 3] = vsz;
     }
 
     redisReply* rr = redisCommandArgv(conn->conn_ctx, 3 * n + 1, argv, argvlen);
@@ -290,9 +294,14 @@ static int BatchSend_SlotsRestore(RedisModuleCtx* ctx,
     }
     if (rr->type == REDIS_REPLY_ERROR) {
         freeReplyObject(rr);
+        RedisModule_Free(argv);
+        RedisModule_Free(argvlen);
         return SLOTS_MGRT_ERR;
     }
+
     freeReplyObject(rr);
+    RedisModule_Free(argv);
+    RedisModule_Free(argvlen);
 
     return n;
 }
@@ -354,8 +363,7 @@ static int MGRT(RedisModuleCtx* ctx, const sds host, const sds port,
     }
     freeReplyObject(rr);
 
-    sdstolower(mgrtType);
-    if (sdscmp("withrestore", mgrtType) == 0) {
+    if (mgrtType != NULL && strcasecmp(mgrtType, "withrestore") == 0) {
         int ret = Pipeline_Restore(ctx, conn, objs, n);
         SlotsMGRT_CloseConn(ctx, host, port);
         return ret;
@@ -381,7 +389,7 @@ static int getRdbDumpObjs(RedisModuleCtx* ctx, RedisModuleString* keys[], int n,
         reply = RedisModule_Call(ctx, "DUMP", "s", keys[i]);
         if (reply == NULL
             || RedisModule_CallReplyType(reply) != REDISMODULE_REPLY_STRING) {
-            RedisModule_ReplyWithCallReply(ctx, reply);
+            // RedisModule_ReplyWithCallReply(ctx, reply);
             RedisModule_FreeCallReply(reply);
             return SLOTS_MGRT_ERR;
         }
@@ -390,7 +398,7 @@ static int getRdbDumpObjs(RedisModuleCtx* ctx, RedisModuleString* keys[], int n,
         reply = RedisModule_Call(ctx, "PTTL", "s", keys[i]);
         if (reply == NULL
             || RedisModule_CallReplyType(reply) != REDISMODULE_REPLY_INTEGER) {
-            RedisModule_ReplyWithCallReply(ctx, reply);
+            // RedisModule_ReplyWithCallReply(ctx, reply);
             RedisModule_FreeCallReply(reply);
             return SLOTS_MGRT_ERR;
         }

@@ -32,9 +32,9 @@
 
 #include "redisxslot.h"
 
-// todo:
 // 1. sub notify event hook to add/remove dict/skiplist (db slot keys)
 // 2. sub CronLoop event hook to resize/rehash dict (db slot keys)
+// todo:
 // 3. db slot key meta info save to rdb, load from rdb
 
 /* Check if Redis version is compatible with the adapter. */
@@ -201,7 +201,7 @@ int SlotsMGRTOne_RedisCommand(RedisModuleCtx* ctx, RedisModuleString** argv,
         return REDISMODULE_ERR;
     }
 
-    const char* mgrtType;
+    const char* mgrtType = NULL;
     if (argc == 6) {
         mgrtType = RedisModule_StringPtrLen(argv[5], NULL);
     }
@@ -382,16 +382,16 @@ int SlotsRestore_RedisCommand(RedisModuleCtx* ctx, RedisModuleString** argv,
     rdb_dump_obj* objs = RedisModule_Alloc(sizeof(rdb_dump_obj) * n);
     for (int i = 0; i < n; i++) {
         // del -> add -> ttlms (>0)
-        objs[i].key = argv[i * 3 + 0];
+        objs[i].key = argv[i * 3 + 1];
         long long ttlms = 0;
-        if (RedisModule_StringToLongLong(argv[i * 3 + 1], &ttlms)
+        if (RedisModule_StringToLongLong(argv[i * 3 + 2], &ttlms)
             != REDISMODULE_OK) {
             RedisModule_ReplyWithError(ctx, REDISXSLOT_ERRORMSG_SYNTAX);
             RedisModule_Free(objs);
             return REDISMODULE_ERR;
         }
         objs[i].ttlms = (time_t)ttlms;
-        objs[i].val = argv[i * 3 + 2];
+        objs[i].val = argv[i * 3 + 3];
     }
 
     int ret = SlotsMGRT_Restore(ctx, &objs, n);
@@ -424,7 +424,7 @@ int SlotsScan_RedisCommand(RedisModuleCtx* ctx, RedisModuleString** argv,
     }
 
     long long cursor = 0;
-    if (RedisModule_StringToLongLong(argv[1], &cursor) != REDISMODULE_OK) {
+    if (RedisModule_StringToLongLong(argv[2], &cursor) != REDISMODULE_OK) {
         RedisModule_ReplyWithError(ctx, REDISXSLOT_ERRORMSG_SYNTAX);
         return REDISMODULE_ERR;
     }
@@ -629,40 +629,43 @@ void FlushdbCallback(RedisModuleCtx* ctx, RedisModuleEvent e, uint64_t sub,
     REDISMODULE_NOT_USED(e);
     REDISMODULE_NOT_USED(sub);
     RedisModule_AutoMemory(ctx);
-
     RedisModuleFlushInfo* fi = data;
-    if (sub == REDISMODULE_SUBEVENT_FLUSHDB_START) {
-        if (fi->dbnum != -1) {
-            int db = (int)fi->dbnum;
-            for (int slot = 0; slot < (int)g_slots_meta_info.hash_slots_size;
-                 slot++) {
-                if (dictSize(db_slot_infos[db].slotkey_tables[slot]) == 0) {
-                    continue;
-                }
-                m_dictEmpty(db_slot_infos[db].slotkey_tables[slot], NULL);
-            }
-            if (db_slot_infos[db].tagged_key_list->length != 0) {
-                m_zslFree(db_slot_infos[db].tagged_key_list);
-                db_slot_infos[db].tagged_key_list = m_zslCreate();
-            }
-        } else {
-            for (int db = 0; db < g_slots_meta_info.databases; db++) {
-                for (int slot = 0;
-                     slot < (int)g_slots_meta_info.hash_slots_size; slot++) {
-                    if (dictSize(db_slot_infos[db].slotkey_tables[slot]) == 0) {
-                        continue;
-                    }
-                    m_dictEmpty(db_slot_infos[db].slotkey_tables[slot], NULL);
-                }
-                if (db_slot_infos[db].tagged_key_list->length != 0) {
-                    m_zslFree(db_slot_infos[db].tagged_key_list);
-                    db_slot_infos[db].tagged_key_list = m_zslCreate();
-                }
-            }  // end for
-        }      // end if
-    }          // end if
+
     // if (sub == REDISMODULE_SUBEVENT_FLUSHDB_END) {
+    //     return;
     // }
+
+    if (sub != REDISMODULE_SUBEVENT_FLUSHDB_START) {
+        return;
+    }
+    if (fi->dbnum != -1) {
+        int db = (int)fi->dbnum;
+        for (int slot = 0; slot < (int)g_slots_meta_info.hash_slots_size;
+             slot++) {
+            if (dictSize(db_slot_infos[db].slotkey_tables[slot]) == 0) {
+                continue;
+            }
+            m_dictEmpty(db_slot_infos[db].slotkey_tables[slot], NULL);
+        }
+        if (db_slot_infos[db].tagged_key_list->length != 0) {
+            m_zslFree(db_slot_infos[db].tagged_key_list);
+            db_slot_infos[db].tagged_key_list = m_zslCreate();
+        }
+        return;
+    }
+    for (int db = 0; db < g_slots_meta_info.databases; db++) {
+        for (int slot = 0; slot < (int)g_slots_meta_info.hash_slots_size;
+             slot++) {
+            if (dictSize(db_slot_infos[db].slotkey_tables[slot]) == 0) {
+                continue;
+            }
+            m_dictEmpty(db_slot_infos[db].slotkey_tables[slot], NULL);
+        }
+        if (db_slot_infos[db].tagged_key_list->length != 0) {
+            m_zslFree(db_slot_infos[db].tagged_key_list);
+            db_slot_infos[db].tagged_key_list = m_zslCreate();
+        }
+    }
 }
 
 // showtdown cmd -> prepareForShutdown -> finishShutdown
@@ -834,7 +837,7 @@ RedisModule_OnLoad(RedisModuleCtx* ctx, RedisModuleString** argv, int argc) {
     CREATE_WRMCMD("slotsmgrttagslot", SlotsMGRTTagSlot_RedisCommand, 0, 0, 0);
     CREATE_WRMCMD("slotsrestore", SlotsRestore_RedisCommand, 0, 0, 0);
     CREATE_WRMCMD("slotsdel", SlotsDel_RedisCommand, 0, 0, 0);
-    CREATE_WRMCMD("slotstest", SlotsTest_RedisCommand, 0, 0, 0);
+    // CREATE_WRMCMD("slotstest", SlotsTest_RedisCommand, 0, 0, 0);
 
     return REDISMODULE_OK;
 }

@@ -522,45 +522,6 @@ static int redisModule_SlotsInit(RedisModuleCtx* ctx, RedisModuleString** argv,
     return REDISMODULE_OK;
 }
 
-/**
-* This function can be used instead of `RedisModule_RetainString()`.
-* The main difference between the two is that this function will always
-* succeed, whereas `RedisModule_RetainString()` may fail because of an
-* assertion.
-*
-* The function returns a pointer to RedisModuleString, which is owned
-* by the caller. It requires a call to `RedisModule_FreeString()` to free
-* the string when automatic memory management is disabled for the context.
-* When automatic memory management is enabled, you can either call
-* `RedisModule_FreeString()` or let the automation free it.
-*
-* This function is more efficient than `RedisModule_CreateStringFromString()`
-* because whenever possible, it avoids copying the underlying
-* RedisModuleString. The disadvantage of using this function is that it
-* might not be possible to use `RedisModule_StringAppendBuffer()` on the
-* returned RedisModuleString.
-* It is possible to call this function with a NULL context.
-*
-When strings are going to be held for an extended duration, it is good
-practice to also call `RedisModule_TrimStringAllocation()` in order to
-optimize memory usage.
-
-Threaded modules that reference held strings from other threads *must*
-explicitly trim the allocation as soon as the string is held. Not doing
-so may result with automatic trimming which is not thread safe.
-
-so reuse by refcount, if threaded modules please to copy(create a new)
-*/
-RedisModuleString* takeAndRef(RedisModuleString* str) {
-    // check high -> low version
-    if (RedisModule_HoldString) {
-        RedisModule_HoldString(NULL, str);  // 6.0
-    } else if (RedisModule_RetainString) {
-        RedisModule_RetainString(NULL, str);  // 4.0
-    }
-    return str;
-}
-
 /*-------------------------------- event handler  --------------------------*/
 int htNeedsResize(dict* dict) {
     long long size, used;
@@ -731,61 +692,94 @@ int NotifyTypeChangeCallback(RedisModuleCtx* ctx, int type, const char* event,
     // don't auto freee key
     // RedisModule_AutoMemory(ctx);
     int db = RedisModule_GetSelectedDb(ctx);
-    const char* kstr = RedisModule_StringPtrLen(key, NULL);
-    RedisModule_Log(ctx, "notice",
+    RedisModule_Log(ctx, "debug",
                     "NotifyTypeChangeCallback db %d event type %d, "
                     "event %s, key %s",
-                    db, type, event, kstr);
-    do {
-        uint32_t crc;
-        int hastag;
-        int slot = slots_num(kstr, &crc, &hastag);
-        RedisModuleString* sval
-            = RedisModule_CreateStringFromLongLong(ctx, (long long)crc);
-        if (m_dictAdd(db_slot_infos[db].slotkey_tables[slot], takeAndRef(key),
-                      (void*)sval)
-            == DICT_OK) {
-            if (hastag) {
-                m_zslInsert(db_slot_infos[db].tagged_key_list, (long long)crc,
-                            takeAndRef(key));
-            }
-        }
-    } while (0);
-
+                    db, type, event, RedisModule_StringPtrLen(key, NULL));
+    Slots_Add(ctx, db, key);
     return REDISMODULE_OK;
 }
 
 int NotifyGenericCallback(RedisModuleCtx* ctx, int type, const char* event,
                           RedisModuleString* key) {
     RedisModule_AutoMemory(ctx);
-    int db = RedisModule_GetSelectedDb(ctx);
-    const char* kstr = RedisModule_StringPtrLen(key, NULL);
+    int dbid = RedisModule_GetSelectedDb(ctx);
     RedisModule_Log(
-        ctx, "notice",
-        "NotifyGenericCallback db %d event type %d, event %s, key %s", db, type,
-        event, kstr);
-    do {
-        uint32_t crc;
-        int hastag;
-        int slot = slots_num(kstr, &crc, &hastag);
-        // entry key,val free
-        if (m_dictDelete(db_slot_infos[db].slotkey_tables[slot], key)
-            == DICT_OK) {
-            if (hastag) {
-                // node key free with score
-                m_zslDelete(db_slot_infos[db].tagged_key_list, (long long)crc,
-                            key, NULL);
-            }
+        ctx, "debug",
+        "NotifyGenericCallback db %d event type %d, event %s, key %s", dbid,
+        type, event, RedisModule_StringPtrLen(key, NULL));
+
+    if (strcmp(event, "del") == 0) {
+        Slots_Del(ctx, dbid, key);
+        return REDISMODULE_OK;
+    }
+
+    // save event stat for pair events
+    // notice: just for single thread process cmd,
+    // (rename_from->rename_to), (move_from->move_to)
+    static RedisModuleString *from_key = NULL, *to_key = NULL;
+    static int from_dbid, to_dbid;
+    static int cmd_flag = CMD_NONE;
+    if (strcmp(event, "rename_from") == 0) {
+        from_key = RedisModule_CreateStringFromString(NULL, key);
+    } else if (strcmp(event, "rename_to") == 0) {
+        to_key = RedisModule_CreateStringFromString(NULL, key);
+        cmd_flag = CMD_RENAME;
+    } else if (strcmp(event, "move_from") == 0) {
+        from_dbid = dbid;
+    } else if (strcmp(event, "move_to") == 0) {
+        to_dbid = dbid;
+        cmd_flag = CMD_MOVE;
+    }
+
+    if (cmd_flag == CMD_NONE) {
+        return REDISMODULE_OK;
+    }
+
+    RedisModuleString *local_from_key = NULL, *local_to_key = NULL;
+    int local_from_dbid, local_to_dbid;
+    /* We assign values in advance so that `move` and `rename` can be
+     * processed uniformly. */
+    if (cmd_flag == CMD_RENAME) {
+        local_from_key = from_key;
+        local_to_key = to_key;
+        /* `rename` does not change the dbid of the key. */
+        local_from_dbid = dbid;
+        local_to_dbid = dbid;
+    } else {
+        /* `move` does not change the name of the key. */
+        local_from_key = key;
+        local_to_key = key;
+        local_from_dbid = from_dbid;
+        local_to_dbid = to_dbid;
+    }
+
+    Slots_Del(ctx, local_from_dbid, local_from_key);
+    Slots_Add(ctx, local_to_dbid, local_to_key);
+
+    /* Release sources. */
+    if (cmd_flag == CMD_RENAME) {
+        if (to_key) {
+            RedisModule_FreeString(NULL, to_key);
+            to_key = NULL;
         }
-    } while (0);
+
+        if (from_key) {
+            RedisModule_FreeString(NULL, from_key);
+            from_key = NULL;
+        }
+    }
+
+    /* Reset flag. */
+    cmd_flag = CMD_NONE;
 
     return REDISMODULE_OK;
 }
 
 /* This function must be present on each Redis module. It is used in
  * order to register the commands into the Redis server.
- *  __attribute__((visibility("default"))) for the same func name with redis or
- * other Dynamic Shared Lib *.so,  more detail man gcc or see
+ *  __attribute__((visibility("default"))) for the same func name with redis
+ * or other Dynamic Shared Lib *.so,  more detail man gcc or see
  * https://gcc.gnu.org/wiki/Visibility
  */
 int __attribute__((visibility("default")))

@@ -684,3 +684,75 @@ int SlotsMGRT_DelSlotKeys(RedisModuleCtx* ctx, int db, int slots[], int n) {
 
     return n;
 }
+
+/**
+* This function can be used instead of `RedisModule_RetainString()`.
+* The main difference between the two is that this function will always
+* succeed, whereas `RedisModule_RetainString()` may fail because of an
+* assertion.
+*
+* The function returns a pointer to RedisModuleString, which is owned
+* by the caller. It requires a call to `RedisModule_FreeString()` to free
+* the string when automatic memory management is disabled for the context.
+* When automatic memory management is enabled, you can either call
+* `RedisModule_FreeString()` or let the automation free it.
+*
+* This function is more efficient than `RedisModule_CreateStringFromString()`
+* because whenever possible, it avoids copying the underlying
+* RedisModuleString. The disadvantage of using this function is that it
+* might not be possible to use `RedisModule_StringAppendBuffer()` on the
+* returned RedisModuleString.
+* It is possible to call this function with a NULL context.
+*
+When strings are going to be held for an extended duration, it is good
+practice to also call `RedisModule_TrimStringAllocation()` in order to
+optimize memory usage.
+
+Threaded modules that reference held strings from other threads *must*
+explicitly trim the allocation as soon as the string is held. Not doing
+so may result with automatic trimming which is not thread safe.
+
+so reuse by refcount, if threaded modules please to copy(create a new)
+*/
+RedisModuleString* takeAndRef(RedisModuleString* str) {
+    // check high -> low version
+    if (RedisModule_HoldString) {
+        RedisModule_HoldString(NULL, str);  // 6.0
+    } else if (RedisModule_RetainString) {
+        RedisModule_RetainString(NULL, str);  // 4.0
+    }
+    return str;
+}
+
+void Slots_Add(RedisModuleCtx* ctx, int db, RedisModuleString* key) {
+    const char* kstr = RedisModule_StringPtrLen(key, NULL);
+    uint32_t crc;
+    int hastag;
+    int slot = slots_num(kstr, &crc, &hastag);
+    RedisModuleString* sval
+        = RedisModule_CreateStringFromLongLong(ctx, (long long)crc);
+    if (m_dictAdd(db_slot_infos[db].slotkey_tables[slot], takeAndRef(key),
+                  (void*)sval)
+        == DICT_OK) {
+        if (hastag) {
+            m_zslInsert(db_slot_infos[db].tagged_key_list, (long long)crc,
+                        takeAndRef(key));
+        }
+    }
+}
+
+void Slots_Del(RedisModuleCtx* ctx, int db, RedisModuleString* key) {
+    UNUSED(ctx);
+    const char* kstr = RedisModule_StringPtrLen(key, NULL);
+    uint32_t crc;
+    int hastag;
+    int slot = slots_num(kstr, &crc, &hastag);
+    // entry key,val free
+    if (m_dictDelete(db_slot_infos[db].slotkey_tables[slot], key) == DICT_OK) {
+        if (hastag) {
+            // node key free with score
+            m_zslDelete(db_slot_infos[db].tagged_key_list, (long long)crc, key,
+                        NULL);
+        }
+    }
+}

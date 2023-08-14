@@ -42,6 +42,10 @@
 /* Hash table parameters for resize */
 #define HASHTABLE_MIN_FILL 10           /* Minimal hash table fill 10% */
 #define HASHTABLE_MAX_LOAD_FACTOR 1.618 /* Maximum hash table load factor. */
+/* sub generic cmd for evnet handle */
+#define CMD_NONE 0
+#define CMD_RENAME 1
+#define CMD_MOVE 2
 
 // define macro
 #define UNUSED(V) ((void)V)
@@ -142,5 +146,7 @@ void SlotsMGRT_Scan(RedisModuleCtx* ctx, int slot, unsigned long count,
                     unsigned long cursor, list* l);
 int SlotsMGRT_DelSlotKeys(RedisModuleCtx* ctx, int db, int slots[], int n);
 void SlotsMGRT_CloseTimedoutConns(RedisModuleCtx* ctx);
+void Slots_Add(RedisModuleCtx* ctx, int db, RedisModuleString* key);
+void Slots_Del(RedisModuleCtx* ctx, int db, RedisModuleString* key);
 
 #endif /* REDISXSLOT_H */

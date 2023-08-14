@@ -112,8 +112,6 @@ int slots_num(const char* s, uint32_t* pcrc, int* phastag) {
         hastag = 1;
     }
     uint32_t crc = crc32_checksum(tag, taglen);
-    printf("tag %s taglen %d crc %u g_hash_slots_size %u \n", tag, taglen, crc,
-           g_slots_meta_info.hash_slots_size);
     if (pcrc != NULL) {
         *pcrc = crc;
     }

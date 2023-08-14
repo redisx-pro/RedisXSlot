@@ -274,7 +274,6 @@ static int BatchSend_SlotsRestore(RedisModuleCtx* ctx,
     for (int i = 0; i < n; i++) {
         size_t ksz, vsz;
         const char* k = RedisModule_StringPtrLen(objs[i]->key, &ksz);
-        const char* v = RedisModule_StringPtrLen(objs[i]->val, &vsz);
         argv[i * 3 + 1] = k;
         argvlen[i * 3 + 1] = ksz;
 
@@ -284,12 +283,15 @@ static int BatchSend_SlotsRestore(RedisModuleCtx* ctx,
         argv[i * 3 + 2] = buf;
         argvlen[i * 3 + 2] = (size_t)len;
 
+        const char* v = RedisModule_StringPtrLen(objs[i]->val, &vsz);
         argv[i * 3 + 3] = v;
         argvlen[i * 3 + 3] = vsz;
     }
 
     redisReply* rr = redisCommandArgv(conn->conn_ctx, 3 * n + 1, argv, argvlen);
     if (rr == NULL) {
+        RedisModule_Free(argv);
+        RedisModule_Free(argvlen);
         return SLOTS_MGRT_ERR;
     }
     if (rr->type == REDIS_REPLY_ERROR) {
@@ -474,14 +476,56 @@ int SlotsMGRT_OneKey(RedisModuleCtx* ctx, const char* host, const char* port,
                        (RedisModuleString*[]){key}, 1, (const sds)mgrtType);
 }
 
+static void notifyOne(RedisModuleCtx* ctx, RedisModuleString* key) {
+    RedisModuleKey* okey
+        = RedisModule_OpenKey(ctx, key, REDISMODULE_READ | REDISMODULE_WRITE);
+
+    // inner type notify
+    if (RedisModule_KeyType(okey) == REDISMODULE_KEYTYPE_STRING) {
+        RedisModule_NotifyKeyspaceEvent(ctx, REDISMODULE_NOTIFY_STRING,
+                                        "slotsmgtr-restore", key);
+    }
+    if (RedisModule_KeyType(okey) == REDISMODULE_KEYTYPE_HASH) {
+        RedisModule_NotifyKeyspaceEvent(ctx, REDISMODULE_NOTIFY_HASH,
+                                        "slotsmgtr-restore", key);
+    }
+    if (RedisModule_KeyType(okey) == REDISMODULE_KEYTYPE_LIST) {
+        RedisModule_NotifyKeyspaceEvent(ctx, REDISMODULE_NOTIFY_LIST,
+                                        "slotsmgtr-restore", key);
+    }
+    if (RedisModule_KeyType(okey) == REDISMODULE_KEYTYPE_SET) {
+        RedisModule_NotifyKeyspaceEvent(ctx, REDISMODULE_NOTIFY_SET,
+                                        "slotsmgtr-restore", key);
+    }
+    if (RedisModule_KeyType(okey) == REDISMODULE_KEYTYPE_ZSET) {
+        RedisModule_NotifyKeyspaceEvent(ctx, REDISMODULE_NOTIFY_ZSET,
+                                        "slotsmgtr-restore", key);
+    }
+
+    // todo if use outside 3rd extra type
+    // need to register keyspace notify and sub event
+
+    RedisModule_CloseKey(okey);
+}
+
 static int restoreOne(RedisModuleCtx* ctx, rdb_dump_obj* obj) {
-    RedisModuleCallReply* reply;
-    reply = RedisModule_Call(ctx, "RESTORE", "clc", obj->key, obj->ttlms,
-                             obj->val);
+    if (obj->ttlms < 0) {
+        obj->ttlms = 0;
+    }
+    const char* k = RedisModule_StringPtrLen(obj->key, NULL);
+    size_t vsz;
+    const char* v = RedisModule_StringPtrLen(obj->val, &vsz);
+    RedisModuleCallReply* reply
+        = RedisModule_Call(ctx, "RESTORE", "clb", k, obj->ttlms, v, vsz);
     if (reply == NULL
         || RedisModule_CallReplyType(reply) == REDISMODULE_REPLY_ERROR) {
         RedisModule_FreeCallReply(reply);
         return SLOTS_MGRT_ERR;
+    }
+    if (RedisModule_NotifyKeyspaceEvent) {  // 6.0
+        notifyOne(ctx, obj->key);
+    } else {
+        Slots_Add(ctx,  RedisModule_GetSelectedDb(ctx), obj->key);
     }
 
     RedisModule_FreeCallReply(reply);

@@ -46,7 +46,7 @@ static inline int redisModuleCompatibilityCheckV5(void) {
 }
 
 static inline int redisModuleCompatibilityCheckV6(void) {
-    if (!RedisModule_HoldString) {
+    if (!RedisModule_HoldString || !RedisModule_NotifyKeyspaceEvent) {
         return REDIS_ERR;
     }
     return REDIS_OK;
@@ -84,7 +84,7 @@ int SlotsTest_RedisCommand(RedisModuleCtx* ctx, RedisModuleString** argv,
     } while (0);
     */
 
-    redisContext* c = redisConnect("127.0.0.1", 6679);
+    redisContext* c = redisConnect("127.0.0.1", 6372);
     if (c->err) {
         printf("redis connect Error-->: %s\n", c->errstr);
         return REDISMODULE_ERR;
@@ -837,7 +837,7 @@ RedisModule_OnLoad(RedisModuleCtx* ctx, RedisModuleString** argv, int argc) {
     CREATE_WRMCMD("slotsmgrttagslot", SlotsMGRTTagSlot_RedisCommand, 0, 0, 0);
     CREATE_WRMCMD("slotsrestore", SlotsRestore_RedisCommand, 0, 0, 0);
     CREATE_WRMCMD("slotsdel", SlotsDel_RedisCommand, 0, 0, 0);
-    // CREATE_WRMCMD("slotstest", SlotsTest_RedisCommand, 0, 0, 0);
+    CREATE_WRMCMD("slotstest", SlotsTest_RedisCommand, 0, 0, 0);
 
     return REDISMODULE_OK;
 }

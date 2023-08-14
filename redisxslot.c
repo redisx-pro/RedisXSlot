@@ -386,47 +386,71 @@ static int getRdbDumpObjs(RedisModuleCtx* ctx, RedisModuleString* keys[], int n,
     if (n <= 0) {
         return 0;
     }
+
+    int j = 0;
     RedisModuleCallReply* reply;
     for (int i = 0; i < n; i++) {
         reply = RedisModule_Call(ctx, "DUMP", "s", keys[i]);
-        if (reply == NULL
-            || RedisModule_CallReplyType(reply) != REDISMODULE_REPLY_STRING) {
+        if (reply == NULL)
+            continue;
+        int type = RedisModule_CallReplyType(reply);
+        if (type == REDISMODULE_REPLY_NULL) {
+            RedisModule_FreeCallReply(reply);
+            continue;
+        }
+        if (type != REDISMODULE_REPLY_STRING) {
             // RedisModule_ReplyWithCallReply(ctx, reply);
             RedisModule_FreeCallReply(reply);
             return SLOTS_MGRT_ERR;
         }
         RedisModuleString* val = RedisModule_CreateStringFromCallReply(reply);
+        RedisModule_FreeCallReply(reply);
 
         reply = RedisModule_Call(ctx, "PTTL", "s", keys[i]);
-        if (reply == NULL
-            || RedisModule_CallReplyType(reply) != REDISMODULE_REPLY_INTEGER) {
+        if (reply == NULL)
+            continue;
+        type = RedisModule_CallReplyType(reply);
+        if (type == REDISMODULE_REPLY_NULL) {
+            RedisModule_FreeCallReply(reply);
+            continue;
+        }
+        if (type != REDISMODULE_REPLY_INTEGER) {
             // RedisModule_ReplyWithCallReply(ctx, reply);
             RedisModule_FreeCallReply(reply);
             return SLOTS_MGRT_ERR;
         }
         long long ttlms = RedisModule_CallReplyInteger(reply);
+        RedisModule_FreeCallReply(reply);
 
-        objs[i]->key = keys[i];
-        objs[i]->ttlms = ttlms;
-        objs[i]->val = val;
+        objs[j]->key = keys[j];
+        objs[j]->ttlms = ttlms;
+        objs[j]->val = val;
+        j++;
     }
-    RedisModule_FreeCallReply(reply);
-    return n;
+    return j;
 }
 
 static int delKeys(RedisModuleCtx* ctx, RedisModuleString* keys[], int n) {
     RedisModuleCallReply* reply;
+    int ret = 0;
     for (int i = 0; i < n; i++) {
         reply = RedisModule_Call(ctx, "DEL", "s", keys[i]);
-        if (reply == NULL
-            || RedisModule_CallReplyType(reply) != REDISMODULE_REPLY_INTEGER) {
+        int type = RedisModule_CallReplyType(reply);
+        if (reply == NULL)
+            continue;
+        if (type == REDISMODULE_REPLY_NULL) {
+            RedisModule_FreeCallReply(reply);
+            continue;
+        }
+        if (type != REDISMODULE_REPLY_INTEGER) {
             // RedisModule_ReplyWithCallReply(ctx, reply);
             RedisModule_FreeCallReply(reply);
             return SLOTS_MGRT_ERR;
         }
+        RedisModule_FreeCallReply(reply);
+        ret++;
     }
-    RedisModule_FreeCallReply(reply);
-    return n;
+    return ret;
 }
 
 static int migrateKeys(RedisModuleCtx* ctx, const sds host, const sds port,
@@ -435,14 +459,21 @@ static int migrateKeys(RedisModuleCtx* ctx, const sds host, const sds port,
     if (n <= 0) {
         return 0;
     }
-    rdb_dump_obj* objs = RedisModule_Alloc(sizeof(rdb_dump_obj) * n);
+
     // get rdb dump objs
-    if (getRdbDumpObjs(ctx, keys, n, &objs) == SLOTS_MGRT_ERR) {
+    rdb_dump_obj* objs = RedisModule_Alloc(sizeof(rdb_dump_obj) * n);
+    int ret = getRdbDumpObjs(ctx, keys, n, &objs);
+    if (ret == 0) {
+        RedisModule_Free(objs);
+        return 0;
+    }
+    if (ret == SLOTS_MGRT_ERR) {
         RedisModule_Free(objs);
         return SLOTS_MGRT_ERR;
     }
+
     // migrate
-    int ret = MGRT(ctx, host, port, timeoutMS, &objs, 1, mgrtType);
+    ret = MGRT(ctx, host, port, timeoutMS, &objs, ret, mgrtType);
     if (ret == SLOTS_MGRT_ERR) {
         RedisModule_Free(objs);
         return SLOTS_MGRT_ERR;
@@ -483,23 +514,23 @@ static void notifyOne(RedisModuleCtx* ctx, RedisModuleString* key) {
     // inner type notify
     if (RedisModule_KeyType(okey) == REDISMODULE_KEYTYPE_STRING) {
         RedisModule_NotifyKeyspaceEvent(ctx, REDISMODULE_NOTIFY_STRING,
-                                        "slotsmgtr-restore", key);
+                                        "slotsmgrt-restore", key);
     }
     if (RedisModule_KeyType(okey) == REDISMODULE_KEYTYPE_HASH) {
         RedisModule_NotifyKeyspaceEvent(ctx, REDISMODULE_NOTIFY_HASH,
-                                        "slotsmgtr-restore", key);
+                                        "slotsmgrt-restore", key);
     }
     if (RedisModule_KeyType(okey) == REDISMODULE_KEYTYPE_LIST) {
         RedisModule_NotifyKeyspaceEvent(ctx, REDISMODULE_NOTIFY_LIST,
-                                        "slotsmgtr-restore", key);
+                                        "slotsmgrt-restore", key);
     }
     if (RedisModule_KeyType(okey) == REDISMODULE_KEYTYPE_SET) {
         RedisModule_NotifyKeyspaceEvent(ctx, REDISMODULE_NOTIFY_SET,
-                                        "slotsmgtr-restore", key);
+                                        "slotsmgrt-restore", key);
     }
     if (RedisModule_KeyType(okey) == REDISMODULE_KEYTYPE_ZSET) {
         RedisModule_NotifyKeyspaceEvent(ctx, REDISMODULE_NOTIFY_ZSET,
-                                        "slotsmgtr-restore", key);
+                                        "slotsmgrt-restore", key);
     }
 
     // todo if use outside 3rd extra type
@@ -517,18 +548,25 @@ static int restoreOne(RedisModuleCtx* ctx, rdb_dump_obj* obj) {
     const char* v = RedisModule_StringPtrLen(obj->val, &vsz);
     RedisModuleCallReply* reply
         = RedisModule_Call(ctx, "RESTORE", "clb", k, obj->ttlms, v, vsz);
-    if (reply == NULL
-        || RedisModule_CallReplyType(reply) == REDISMODULE_REPLY_ERROR) {
+    if (reply == NULL) {
+        return 0;
+    }
+    int type = RedisModule_CallReplyType(reply);
+    if (type == REDISMODULE_REPLY_NULL) {
+        RedisModule_FreeCallReply(reply);
+        return 0;
+    }
+    if (RedisModule_CallReplyType(reply) == REDISMODULE_REPLY_ERROR) {
         RedisModule_FreeCallReply(reply);
         return SLOTS_MGRT_ERR;
     }
     if (RedisModule_NotifyKeyspaceEvent) {  // 6.0
         notifyOne(ctx, obj->key);
     } else {
-        Slots_Add(ctx,  RedisModule_GetSelectedDb(ctx), obj->key);
+        Slots_Add(ctx, RedisModule_GetSelectedDb(ctx), obj->key);
     }
-
     RedisModule_FreeCallReply(reply);
+
     return 1;
 }
 

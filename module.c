@@ -837,7 +837,7 @@ RedisModule_OnLoad(RedisModuleCtx* ctx, RedisModuleString** argv, int argc) {
     CREATE_WRMCMD("slotsmgrttagslot", SlotsMGRTTagSlot_RedisCommand, 0, 0, 0);
     CREATE_WRMCMD("slotsrestore", SlotsRestore_RedisCommand, 0, 0, 0);
     CREATE_WRMCMD("slotsdel", SlotsDel_RedisCommand, 0, 0, 0);
-    CREATE_WRMCMD("slotstest", SlotsTest_RedisCommand, 0, 0, 0);
+    //CREATE_WRMCMD("slotstest", SlotsTest_RedisCommand, 0, 0, 0);
 
     return REDISMODULE_OK;
 }

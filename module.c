@@ -712,7 +712,8 @@ void ShutdownCallback(RedisModuleCtx* ctx, RedisModuleEvent e, uint64_t sub,
 /*------------------------------ notify handler --------------------------*/
 int NotifyTypeChangeCallback(RedisModuleCtx* ctx, int type, const char* event,
                              RedisModuleString* key) {
-    RedisModule_AutoMemory(ctx);
+    // don't auto freee key
+    // RedisModule_AutoMemory(ctx);
     int db = RedisModule_GetSelectedDb(ctx);
     const char* kstr = RedisModule_StringPtrLen(key, NULL);
     RedisModule_Log(ctx, "notice",
@@ -740,7 +741,7 @@ int NotifyTypeChangeCallback(RedisModuleCtx* ctx, int type, const char* event,
 
 int NotifyGenericCallback(RedisModuleCtx* ctx, int type, const char* event,
                           RedisModuleString* key) {
-    // RedisModule_AutoMemory(ctx);
+    RedisModule_AutoMemory(ctx);
     int db = RedisModule_GetSelectedDb(ctx);
     const char* kstr = RedisModule_StringPtrLen(key, NULL);
     RedisModule_Log(
@@ -751,9 +752,11 @@ int NotifyGenericCallback(RedisModuleCtx* ctx, int type, const char* event,
         uint32_t crc;
         int hastag;
         int slot = slots_num(kstr, &crc, &hastag);
+        // entry key,val free
         if (m_dictDelete(db_slot_infos[db].slotkey_tables[slot], key)
             == DICT_OK) {
             if (hastag) {
+                // node key free with score
                 m_zslDelete(db_slot_infos[db].tagged_key_list, (long long)crc,
                             key, NULL);
             }

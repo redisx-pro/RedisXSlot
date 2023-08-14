@@ -45,7 +45,13 @@ static inline int redisModuleCompatibilityCheckV5(void) {
     return REDIS_OK;
 }
 
-/* Check if Redis version is compatible with the adapter. */
+static inline int redisModuleCompatibilityCheckV6(void) {
+    if (!RedisModule_HoldString) {
+        return REDIS_ERR;
+    }
+    return REDIS_OK;
+}
+
 static inline int redisModuleCompatibilityCheckV7(void) {
     if (!RedisModule_EventLoopAdd || !RedisModule_EventLoopDel
         || !RedisModule_CreateTimer || !RedisModule_StopTimer) {
@@ -546,8 +552,12 @@ so may result with automatic trimming which is not thread safe.
 so reuse by refcount, if threaded modules please to copy(create a new)
 */
 RedisModuleString* takeAndRef(RedisModuleString* str) {
-    // RedisModule_RetainString(NULL, str);
-    RedisModule_HoldString(NULL, str);
+    // check high -> low version
+    if (RedisModule_HoldString) {
+        RedisModule_HoldString(NULL, str);  // 6.0
+    } else if (RedisModule_RetainString) {
+        RedisModule_RetainString(NULL, str);  // 4.0
+    }
     return str;
 }
 
@@ -665,6 +675,9 @@ void FlushdbCallback(RedisModuleCtx* ctx, RedisModuleEvent e, uint64_t sub,
             int db = (int)fi->dbnum;
             for (int slot = 0; slot < (int)g_slots_meta_info.hash_slots_size;
                  slot++) {
+                if (dictSize(db_slot_infos[db].slotkey_tables[slot]) == 0) {
+                    continue;
+                }
                 m_dictEmpty(db_slot_infos[db].slotkey_tables[slot], NULL);
             }
             if (db_slot_infos[db].tagged_key_list->length != 0) {
@@ -675,6 +688,9 @@ void FlushdbCallback(RedisModuleCtx* ctx, RedisModuleEvent e, uint64_t sub,
             for (int db = 0; db < g_slots_meta_info.databases; db++) {
                 for (int slot = 0;
                      slot < (int)g_slots_meta_info.hash_slots_size; slot++) {
+                    if (dictSize(db_slot_infos[db].slotkey_tables[slot]) == 0) {
+                        continue;
+                    }
                     m_dictEmpty(db_slot_infos[db].slotkey_tables[slot], NULL);
                 }
                 if (db_slot_infos[db].tagged_key_list->length != 0) {
@@ -767,9 +783,13 @@ int NotifyGenericCallback(RedisModuleCtx* ctx, int type, const char* event,
 }
 
 /* This function must be present on each Redis module. It is used in
- * order to register the commands into the Redis server. */
-int RedisModule_OnLoad(RedisModuleCtx* ctx, RedisModuleString** argv,
-                       int argc) {
+ * order to register the commands into the Redis server.
+ *  __attribute__((visibility("default"))) for the same func name with redis or
+ * other Dynamic Shared Lib *.so,  more detail man gcc or see
+ * https://gcc.gnu.org/wiki/Visibility
+ */
+int __attribute__((visibility("default")))
+RedisModule_OnLoad(RedisModuleCtx* ctx, RedisModuleString** argv, int argc) {
     if (RedisModule_Init(ctx, "redisxslot", REDISXSLOT_APIVER_1,
                          REDISMODULE_APIVER_1)
         == REDISMODULE_ERR)

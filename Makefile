@@ -5,11 +5,11 @@ uname_S := $(shell sh -c 'uname -s 2>/dev/null || echo not')
 
 # Compile flags for linux / osx
 ifeq ($(uname_S),Linux)
-	SHOBJ_CFLAGS ?= -W -fPIC -Wall -fno-common -g -ggdb -std=c99 -D_XOPEN_SOURCE=600 -O0 -pthread
-	SHOBJ_LDFLAGS ?= -shared
+	SHOBJ_CFLAGS ?= -W -fPIC -Wall -fno-common -g -ggdb -std=c99 -D_XOPEN_SOURCE=600 -O0 -pthread -fvisibility=hidden
+	SHOBJ_LDFLAGS ?= -shared -fvisibility=hidden
 else
-	SHOBJ_CFLAGS ?= -W -fPIC -Wall -dynamic -fno-common -g -ggdb -std=c99 -O0 -pthread
-	SHOBJ_LDFLAGS ?= -bundle -undefined dynamic_lookup
+	SHOBJ_CFLAGS ?= -W -fPIC -Wall -dynamic -fno-common -g -ggdb -std=c99 -O0 -pthread -fvisibility=hidden
+	SHOBJ_LDFLAGS ?= -bundle -undefined dynamic_lookup -fvisibility=hidden
 endif
 
 # OS X 11.x doesn't have /usr/lib/libSystem.dylib and needs an explicit setting.
@@ -29,8 +29,12 @@ HIREDIS_CFLAGS ?= -I$(SOURCEDIR) -I$(HIREDIS_DIR) -I$(HIREDIS_DIR)/adapters
 THREADPOOL_DIR = ${SOURCEDIR}/threadpool
 THREADPOOL_CFLAGS ?= -I$(THREADPOOL_DIR)
 
+# dep
+DEP_DIR = ${SOURCEDIR}/dep
+DEP_CFLAGS ?= -I$(DEP_DIR)
+
 SOURCEDIR=$(shell pwd -P)
-CC_SOURCES = $(wildcard $(SOURCEDIR)/*.c) $(wildcard $(SOURCEDIR)/dep/*.c) $(wildcard $(THREADPOOL_DIR)/thpool.c)
+CC_SOURCES = $(wildcard $(SOURCEDIR)/*.c) $(wildcard $(DEP_DIR)/*.c) $(wildcard $(THREADPOOL_DIR)/thpool.c)
 CC_OBJECTS = $(sort $(patsubst %.c, %.o, $(CC_SOURCES)))
 
 
@@ -42,10 +46,10 @@ init:
 #	@make -C $(HIREDIS_DIR)
 
 ${SOURCEDIR}/module.o: ${SOURCEDIR}/module.c
-	$(CC) -c -o $@ $(SHOBJ_CFLAGS) $(THREADPOOL_CFLAGS)  $<
+	$(CC) -c -o $@ $(SHOBJ_CFLAGS) $(THREADPOOL_CFLAGS) $(DEP_CFLAGS) $<
 
 ${SOURCEDIR}/redisxslot.o: ${SOURCEDIR}/redisxslot.c
-	$(CC) -c -o $@ $(SHOBJ_CFLAGS) $(THREADPOOL_CFLAGS) $<
+	$(CC) -c -o $@ $(SHOBJ_CFLAGS) $(THREADPOOL_CFLAGS) $(DEP_CFLAGS) $<
 
 %.o: %.c
 	$(CC) -c -o $@ $(SHOBJ_CFLAGS) $<

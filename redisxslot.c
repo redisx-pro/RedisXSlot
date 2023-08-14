@@ -62,7 +62,7 @@ void slots_init(RedisModuleCtx* ctx, uint32_t hash_slots_size, int databases,
     db_slot_infos = RedisModule_Alloc(sizeof(db_slot_info) * databases);
     for (int j = 0; j < databases; j++) {
         db_slot_infos[j].slotkey_tables
-            = RedisModule_Alloc(sizeof(dict*) * hash_slots_size);
+            = RedisModule_Alloc(sizeof(dict) * hash_slots_size);
         for (uint32_t i = 0; i < hash_slots_size; i++) {
             db_slot_infos[j].slotkey_tables[i]
                 = m_dictCreate(&hashSlotDictType, NULL);

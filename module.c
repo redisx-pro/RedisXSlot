@@ -388,7 +388,7 @@ int SlotsRestore_RedisCommand(RedisModuleCtx* ctx, RedisModuleString** argv,
         if (RedisModule_StringToLongLong(argv[i * 3 + 2], &ttlms)
             != REDISMODULE_OK) {
             RedisModule_ReplyWithError(ctx, REDISXSLOT_ERRORMSG_SYNTAX);
-            RedisModule_Free(objs);
+            FreeDumpObjs(objs, j);
             return REDISMODULE_ERR;
         }
         rdb_dump_obj* obj = RedisModule_Alloc(sizeof(rdb_dump_obj));
@@ -402,12 +402,12 @@ int SlotsRestore_RedisCommand(RedisModuleCtx* ctx, RedisModuleString** argv,
     int ret = SlotsMGRT_Restore(ctx, objs, j);
     if (ret == SLOTS_MGRT_ERR) {
         RedisModule_ReplyWithError(ctx, REDISXSLOT_ERRORMSG_MGRT);
-        RedisModule_Free(objs);
+        FreeDumpObjs(objs, j);
         return REDISMODULE_ERR;
     }
 
     RedisModule_ReplyWithLongLong(ctx, ret);
-    RedisModule_Free(objs);
+    FreeDumpObjs(objs, j);
     return REDISMODULE_OK;
 }
 

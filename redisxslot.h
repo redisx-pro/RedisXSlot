@@ -148,5 +148,6 @@ int SlotsMGRT_DelSlotKeys(RedisModuleCtx* ctx, int db, int slots[], int n);
 void SlotsMGRT_CloseTimedoutConns(RedisModuleCtx* ctx);
 void Slots_Add(RedisModuleCtx* ctx, int db, RedisModuleString* key);
 void Slots_Del(RedisModuleCtx* ctx, int db, RedisModuleString* key);
+void FreeDumpObjs(rdb_dump_obj** objs, int n);
 
 #endif /* REDISXSLOT_H */

@@ -385,12 +385,11 @@ static int MGRT(RedisModuleCtx* ctx, const sds host, const sds port,
 //  >=0 - # of success get rdb_dump_objs num (0 or n)
 // rdb_dump_obj* objs[] outsied alloc to fill rdb_dump_obj, use over to free.
 static int getRdbDumpObjs(RedisModuleCtx* ctx, RedisModuleString* keys[], int n,
-                          rdb_dump_obj** objs) {
+                          rdb_dump_obj** objs, int* j) {
     if (n <= 0) {
         return 0;
     }
 
-    int j = 0;
     RedisModuleCallReply* reply;
     for (int i = 0; i < n; i++) {
         reply = RedisModule_Call(ctx, "DUMP", "s", keys[i]);
@@ -428,10 +427,10 @@ static int getRdbDumpObjs(RedisModuleCtx* ctx, RedisModuleString* keys[], int n,
         obj->key = keys[i];
         obj->ttlms = ttlms;
         obj->val = val;
-        objs[j] = obj;
-        j++;
+        objs[*j] = obj;
+        (*j)++;
     }
-    return j;
+    return *j;
 }
 
 static int delKeys(RedisModuleCtx* ctx, RedisModuleString* keys[], int n) {
@@ -457,6 +456,19 @@ static int delKeys(RedisModuleCtx* ctx, RedisModuleString* keys[], int n) {
     return ret;
 }
 
+void FreeDumpObjs(rdb_dump_obj** objs, int n) {
+    for (int i = 0; i < n; i++) {
+        if (objs[i] != NULL) {
+            RedisModule_Free(objs[i]);
+            objs[i] = NULL;
+        }
+    }
+    if (objs != NULL) {
+        RedisModule_Free(objs);
+        objs = NULL;
+    }
+}
+
 static int migrateKeys(RedisModuleCtx* ctx, const sds host, const sds port,
                        time_t timeoutMS, RedisModuleString* keys[], int n,
                        const sds mgrtType) {
@@ -466,27 +478,28 @@ static int migrateKeys(RedisModuleCtx* ctx, const sds host, const sds port,
 
     // get rdb dump objs
     rdb_dump_obj** objs = RedisModule_Alloc(sizeof(rdb_dump_obj*) * n);
-    int ret = getRdbDumpObjs(ctx, keys, n, objs);
+    int j = 0;
+    int ret = getRdbDumpObjs(ctx, keys, n, objs, &j);
     if (ret == 0) {
-        RedisModule_Free(objs);
+        FreeDumpObjs(objs, j);
         return 0;
     }
     if (ret == SLOTS_MGRT_ERR) {
-        RedisModule_Free(objs);
+        FreeDumpObjs(objs, j);
         return SLOTS_MGRT_ERR;
     }
 
     // migrate
     ret = MGRT(ctx, host, port, timeoutMS, objs, ret, mgrtType);
     if (ret == SLOTS_MGRT_ERR) {
-        RedisModule_Free(objs);
+        FreeDumpObjs(objs, j);
         return SLOTS_MGRT_ERR;
     }
     if (ret == 0) {
-        RedisModule_Free(objs);
+        FreeDumpObjs(objs, j);
         return ret;
     }
-    RedisModule_Free(objs);
+    FreeDumpObjs(objs, j);
 
     // del
     ret = delKeys(ctx, keys, n);

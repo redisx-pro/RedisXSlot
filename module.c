@@ -240,17 +240,17 @@ int SlotsMGRTSlot_RedisCommand(RedisModuleCtx* ctx, RedisModuleString** argv,
         return REDISMODULE_ERR;
     }
 
-    const char* mgrtType;
+    const char* mgrtType = NULL;
     if (argc == 6) {
         mgrtType = RedisModule_StringPtrLen(argv[5], NULL);
     }
 
-    int db = RedisModule_GetSelectedDb(ctx);
     int r = SlotsMGRT_SlotOneKey(ctx, host, port, timeout, (int)slot, mgrtType);
     if (r == SLOTS_MGRT_ERR) {
         RedisModule_ReplyWithError(ctx, REDISXSLOT_ERRORMSG_MGRT);
         return REDISMODULE_ERR;
     }
+    int db = RedisModule_GetSelectedDb(ctx);
     RedisModule_ReplyWithArray(ctx, 2);
     RedisModule_ReplyWithLongLong(ctx, r);
     RedisModule_ReplyWithLongLong(
@@ -277,12 +277,12 @@ int SlotsMGRTTagOne_RedisCommand(RedisModuleCtx* ctx, RedisModuleString** argv,
         return REDISMODULE_ERR;
     }
 
-    const char* mgrtType;
+    const char* mgrtType = NULL;
     if (argc == 6) {
         mgrtType = RedisModule_StringPtrLen(argv[5], NULL);
     }
 
-    int r = SlotsMGRT_TagKeys(ctx, host, port, timeout, argv[3], mgrtType);
+    int r = SlotsMGRT_TagKeys(ctx, host, port, timeout, argv[4], mgrtType);
     if (r == SLOTS_MGRT_ERR) {
         RedisModule_ReplyWithError(ctx, REDISXSLOT_ERRORMSG_MGRT);
         return REDISMODULE_ERR;
@@ -314,7 +314,7 @@ int SlotsMGRTTagSlot_RedisCommand(RedisModuleCtx* ctx, RedisModuleString** argv,
         RedisModule_ReplyWithError(ctx, REDISXSLOT_ERRORMSG_SYNTAX);
         return REDISMODULE_ERR;
     }
-    const char* mgrtType;
+    const char* mgrtType = NULL;
     if (argc == 6) {
         mgrtType = RedisModule_StringPtrLen(argv[5], NULL);
     }
@@ -380,10 +380,10 @@ int SlotsRestore_RedisCommand(RedisModuleCtx* ctx, RedisModuleString** argv,
         return RedisModule_WrongArity(ctx);
 
     int n = (argc - 1) / 3;
-    rdb_dump_obj* objs = RedisModule_Alloc(sizeof(rdb_dump_obj) * n);
+    int j = 0;
+    rdb_dump_obj** objs = RedisModule_Alloc(sizeof(rdb_dump_obj*) * n);
     for (int i = 0; i < n; i++) {
         // del -> add -> ttlms (>0)
-        objs[i].key = argv[i * 3 + 1];
         long long ttlms = 0;
         if (RedisModule_StringToLongLong(argv[i * 3 + 2], &ttlms)
             != REDISMODULE_OK) {
@@ -391,11 +391,15 @@ int SlotsRestore_RedisCommand(RedisModuleCtx* ctx, RedisModuleString** argv,
             RedisModule_Free(objs);
             return REDISMODULE_ERR;
         }
-        objs[i].ttlms = (time_t)ttlms;
-        objs[i].val = argv[i * 3 + 3];
+        rdb_dump_obj* obj = RedisModule_Alloc(sizeof(rdb_dump_obj));
+        obj->key = argv[i * 3 + 1];
+        obj->ttlms = (time_t)ttlms;
+        obj->val = argv[i * 3 + 3];
+        objs[j] = obj;
+        j++;
     }
 
-    int ret = SlotsMGRT_Restore(ctx, &objs, n);
+    int ret = SlotsMGRT_Restore(ctx, objs, j);
     if (ret == SLOTS_MGRT_ERR) {
         RedisModule_ReplyWithError(ctx, REDISXSLOT_ERRORMSG_MGRT);
         RedisModule_Free(objs);

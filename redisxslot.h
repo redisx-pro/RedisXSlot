@@ -89,7 +89,7 @@ typedef struct _db_slot_info {
     int db;
     // rehash flag
     int slotkey_table_rehashing;
-    // hash table entry: RedisModuleString* key
+    // hash table entry: RedisModuleString* key,val(crc)
     dict** slotkey_tables;
     // member: RedisModuleString* key, score: uint32_t crc
     m_zskiplist* tagged_key_list;

@@ -712,7 +712,7 @@ int NotifyGenericCallback(RedisModuleCtx* ctx, int type, const char* event,
         "NotifyGenericCallback db %d event type %d, event %s, key %s", dbid,
         type, event, RedisModule_StringPtrLen(key, NULL));
 
-    if (strcmp(event, "del") == 0) {
+    if (strcmp(event, "del") == 0 || strcmp(event, "expired") == 0) {
         Slots_Del(ctx, dbid, key);
         return REDISMODULE_OK;
     }
@@ -824,8 +824,9 @@ RedisModule_OnLoad(RedisModuleCtx* ctx, RedisModuleString** argv, int argc) {
             | REDISMODULE_NOTIFY_ZSET,
         NotifyTypeChangeCallback);
 
-    RedisModule_SubscribeToKeyspaceEvents(ctx, REDISMODULE_NOTIFY_GENERIC,
-                                          NotifyGenericCallback);
+    RedisModule_SubscribeToKeyspaceEvents(
+        ctx, REDISMODULE_NOTIFY_GENERIC | REDISMODULE_NOTIFY_EXPIRED,
+        NotifyGenericCallback);
 
     CREATE_ROMCMD("slotshashkey", SlotsHashKey_RedisCommand, 0, 0, 0);
     CREATE_ROMCMD("slotsinfo", SlotsInfo_RedisCommand, 0, 0, 0);
@@ -837,7 +838,7 @@ RedisModule_OnLoad(RedisModuleCtx* ctx, RedisModuleString** argv, int argc) {
     CREATE_WRMCMD("slotsmgrttagslot", SlotsMGRTTagSlot_RedisCommand, 0, 0, 0);
     CREATE_WRMCMD("slotsrestore", SlotsRestore_RedisCommand, 0, 0, 0);
     CREATE_WRMCMD("slotsdel", SlotsDel_RedisCommand, 0, 0, 0);
-    //CREATE_WRMCMD("slotstest", SlotsTest_RedisCommand, 0, 0, 0);
+    // CREATE_WRMCMD("slotstest", SlotsTest_RedisCommand, 0, 0, 0);
 
     return REDISMODULE_OK;
 }

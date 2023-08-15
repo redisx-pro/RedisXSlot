@@ -7,6 +7,7 @@ db_slot_info* db_slot_infos;
 static RedisModuleDict* slotsmgrt_cached_ctx_connects;
 // declare static function to inner use (private prototypes)
 static const char* slots_tag(const char* s, int* plen);
+static RedisModuleString* takeAndRef(RedisModuleString* str);
 
 uint64_t dictModuleStrHash(const void* key) {
     size_t len;
@@ -49,12 +50,13 @@ m_dictType hashSlotDictType = {
     dictModuleValueDestructor /* val destructor */
 };
 
-void slots_init(RedisModuleCtx* ctx, uint32_t hash_slots_size, int databases,
-                int num_threads) {
+void Slots_Init(RedisModuleCtx* ctx, uint32_t hash_slots_size, int databases,
+                int num_threads, int activerehashing) {
     crc32_init();
 
     g_slots_meta_info.hash_slots_size = hash_slots_size;
     g_slots_meta_info.databases = databases;
+    g_slots_meta_info.activerehashing = activerehashing;
     g_slots_meta_info.cronloops = 0;
     g_slots_meta_info.slots_mgrt_threads = num_threads;
     g_slots_meta_info.slots_restore_threads = num_threads;
@@ -62,7 +64,7 @@ void slots_init(RedisModuleCtx* ctx, uint32_t hash_slots_size, int databases,
     db_slot_infos = RedisModule_Alloc(sizeof(db_slot_info) * databases);
     for (int j = 0; j < databases; j++) {
         db_slot_infos[j].slotkey_tables
-            = RedisModule_Alloc(sizeof(dict) * hash_slots_size);
+            = RedisModule_Alloc(sizeof(dict*) * hash_slots_size);
         for (uint32_t i = 0; i < hash_slots_size; i++) {
             db_slot_infos[j].slotkey_tables[i]
                 = m_dictCreate(&hashSlotDictType, NULL);
@@ -74,7 +76,8 @@ void slots_init(RedisModuleCtx* ctx, uint32_t hash_slots_size, int databases,
     slotsmgrt_cached_ctx_connects = RedisModule_CreateDict(ctx);
 }
 
-void slots_free(RedisModuleCtx* ctx) {
+void Slots_Free(RedisModuleCtx* ctx) {
+    RedisModule_Log(ctx, "notice", "slots free");
     for (int j = 0; j < g_slots_meta_info.databases; j++) {
         if (db_slot_infos != NULL && db_slot_infos[j].slotkey_tables != NULL) {
             for (uint32_t i = 0; i < g_slots_meta_info.hash_slots_size; i++) {
@@ -805,10 +808,10 @@ so may result with automatic trimming which is not thread safe.
 
 so reuse by refcount, if threaded modules please to copy(create a new)
 */
-RedisModuleString* takeAndRef(RedisModuleString* str) {
-    // check high -> low version
+static RedisModuleString* takeAndRef(RedisModuleString* str) {
+    // check high->low version
     if (RedisModule_HoldString) {
-        RedisModule_HoldString(NULL, str);  // 6.0
+        str = RedisModule_HoldString(NULL, str);  // 6.0
     } else if (RedisModule_RetainString) {
         RedisModule_RetainString(NULL, str);  // 4.0
     }

@@ -469,20 +469,40 @@ int SlotsScan_RedisCommand(RedisModuleCtx* ctx, RedisModuleString** argv,
     return REDISMODULE_OK;
 }
 
-static int redisModule_SlotsInit(RedisModuleCtx* ctx, RedisModuleString** argv,
-                                 int argc) {
+static RedisModuleString* redisModule_GetConfigItem(RedisModuleCtx* ctx,
+                                                    const char* name) {
     // config get databases
-    RedisModule_AutoMemory(ctx);
     RedisModuleCallReply* reply
-        = RedisModule_Call(ctx, "CONFIG", "cc", "GET", "databases");
+        = RedisModule_Call(ctx, "CONFIG", "cc", "GET", name);
     long long items = RedisModule_CallReplyLength(reply);
     if (items != 2)
-        return REDISMODULE_ERR;
-    long long databases;
-    RedisModule_StringToLongLong(
-        RedisModule_CreateStringFromCallReply(
-            RedisModule_CallReplyArrayElement(reply, 1)),
-        &databases);
+        return NULL;
+    RedisModuleString* str = RedisModule_CreateStringFromCallReply(
+        RedisModule_CallReplyArrayElement(reply, 1));
+    RedisModule_FreeCallReply(reply);
+    return str;
+}
+
+static int redisModule_SlotsInit(RedisModuleCtx* ctx, RedisModuleString** argv,
+                                 int argc) {
+    RedisModule_AutoMemory(ctx);
+    long long databases = 0;
+    // databases
+    RedisModuleString* str = redisModule_GetConfigItem(ctx, "databases");
+    if (str != NULL) {
+        RedisModule_StringToLongLong(str, &databases);
+    }
+    RedisModule_FreeString(ctx, str);
+    // activerehashing
+    int activerehashing = 0;
+    str = redisModule_GetConfigItem(ctx, "activerehashing");
+    if (str != NULL) {
+        const char* s = RedisModule_StringPtrLen(str, NULL);
+        if (strcasecmp(s, "yes") == 0) {
+            activerehashing = 1;
+        }
+    }
+    RedisModule_FreeString(ctx, str);
 
     // databases
     long long hash_slots_size = DEFAULT_HASH_SLOTS_SIZE;
@@ -519,7 +539,7 @@ static int redisModule_SlotsInit(RedisModuleCtx* ctx, RedisModuleString** argv,
         return REDISMODULE_ERR;
     }
 
-    slots_init(NULL, hash_slots_size, databases, num_threads);
+    Slots_Init(NULL, hash_slots_size, databases, num_threads, activerehashing);
     return REDISMODULE_OK;
 }
 
@@ -677,17 +697,9 @@ void ShutdownCallback(RedisModuleCtx* ctx, RedisModuleEvent e, uint64_t sub,
     REDISMODULE_NOT_USED(data);
     REDISMODULE_NOT_USED(sub);
 
-    RedisModule_Log(ctx, "warning", "ShutdownCallback module-event-%s",
+    RedisModule_Log(ctx, "notic", "ShutdownCallback module-event-%s",
                     "shutdown");
-
-    for (int db = 0; db < g_slots_meta_info.databases; db++) {
-        for (int slot = 0; slot < (int)g_slots_meta_info.hash_slots_size;
-             slot++) {
-            m_dictRelease(db_slot_infos[db].slotkey_tables[slot]);
-        }
-        RedisModule_Free(db_slot_infos[db].slotkey_tables);
-        m_zslFree(db_slot_infos[db].tagged_key_list);
-    }
+    Slots_Free(ctx);
 }
 
 /*------------------------------ notify handler --------------------------*/
@@ -846,6 +858,6 @@ RedisModule_OnLoad(RedisModuleCtx* ctx, RedisModuleString** argv, int argc) {
 
 int RedisModule_OnUnload(RedisModuleCtx* ctx) {
     UNUSED(ctx);
-    slots_free(NULL);
+    Slots_Free(NULL);
     return REDISMODULE_OK;
 }

@@ -126,9 +126,9 @@ extern db_slot_info* db_slot_infos;
 void crc32_init();
 uint32_t crc32_checksum(const char* buf, int len);
 int slots_num(const char* s, uint32_t* pcrc, int* phastag);
-void slots_init(RedisModuleCtx* ctx, uint32_t hash_slots_size, int databases,
-                int num_threads);
-void slots_free(RedisModuleCtx* ctx);
+void Slots_Init(RedisModuleCtx* ctx, uint32_t hash_slots_size, int databases,
+                int num_threads, int activerehashing);
+void Slots_Free(RedisModuleCtx* ctx);
 int SlotsMGRT_OneKey(RedisModuleCtx* ctx, const char* host, const char* port,
                      time_t timeout, RedisModuleString* key,
                      const char* mgrtType);

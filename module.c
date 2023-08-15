@@ -32,10 +32,9 @@
 
 #include "redisxslot.h"
 
-// 1. sub notify event hook to add/remove dict/skiplist (db slot keys)
-// 2. sub CronLoop event hook to resize/rehash dict (db slot keys)
-// todo:
-// 3. db slot key meta info save to rdb, load from rdb
+// 1. sub keyspaces notify event hook to add/remove dict/skiplist (db slot keys)
+// 2. sub CronLoop server event hook to resize/rehash dict (db slot keys)
+// 3. sub loaded notify event hook for db slot key meta info load from rdb
 
 /* Check if Redis version is compatible with the adapter. */
 static inline int redisModuleCompatibilityCheckV5(void) {
@@ -46,7 +45,9 @@ static inline int redisModuleCompatibilityCheckV5(void) {
 }
 
 static inline int redisModuleCompatibilityCheckV6(void) {
-    if (!RedisModule_HoldString || !RedisModule_NotifyKeyspaceEvent) {
+    if (!RedisModule_HoldString || !RedisModule_NotifyKeyspaceEvent
+        || !RedisModule_GetKeyspaceNotificationFlagsAll
+        || !REDISMODULE_NOTIFY_LOADED) {
         return REDIS_ERR;
     }
     return REDIS_OK;
@@ -793,8 +794,8 @@ RedisModule_OnLoad(RedisModuleCtx* ctx, RedisModuleString** argv, int argc) {
         return REDISMODULE_ERR;
 
     // check
-    if (redisModuleCompatibilityCheckV5() != REDISMODULE_OK) {
-        printf("Redis 5.0 or above is required! \n");
+    if (redisModuleCompatibilityCheckV6() != REDISMODULE_OK) {
+        printf("Redis 6.0 or above is required! \n");
         return REDISMODULE_ERR;
     }
 
@@ -821,7 +822,7 @@ RedisModule_OnLoad(RedisModuleCtx* ctx, RedisModuleString** argv, int argc) {
         ctx,
         REDISMODULE_NOTIFY_HASH | REDISMODULE_NOTIFY_SET
             | REDISMODULE_NOTIFY_STRING | REDISMODULE_NOTIFY_LIST
-            | REDISMODULE_NOTIFY_ZSET,
+            | REDISMODULE_NOTIFY_ZSET | REDISMODULE_NOTIFY_LOADED,
         NotifyTypeChangeCallback);
 
     RedisModule_SubscribeToKeyspaceEvents(

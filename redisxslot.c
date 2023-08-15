@@ -485,11 +485,12 @@ static int migrateKeys(RedisModuleCtx* ctx, const sds host, const sds port,
     RedisModule_Free(objs);
 
     // del
-    if (delKeys(ctx, keys, n) == SLOTS_MGRT_ERR) {
+    ret = delKeys(ctx, keys, n);
+    if (ret == SLOTS_MGRT_ERR) {
         return SLOTS_MGRT_ERR;
     }
 
-    return n;
+    return ret;
 }
 
 // SlotsMGRT_OneKey

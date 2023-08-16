@@ -1,5 +1,3 @@
-
-
 # find the OS
 uname_S := $(shell sh -c 'uname -s 2>/dev/null || echo not')
 
@@ -23,7 +21,15 @@ endif
 
 # hiredis
 HIREDIS_DIR = ${SOURCEDIR}/hiredis
-HIREDIS_CFLAGS ?= -I$(SOURCEDIR) -I$(HIREDIS_DIR) -I$(HIREDIS_DIR)/adapters
+HIREDIS_RUNTIME_DIR ?= $(SOURCEDIR)
+HIREDIS_CFLAGS ?= -I$(HIREDIS_DIR) -I$(HIREDIS_DIR)/adapters
+HIREDIS_LDFLAGS ?= -L$(HIREDIS_DIR) $(HIREDIS_CFLAGS)
+HIREDIS_STLIB ?= $(HIREDIS_DIR)/libhiredis.a $(HIREDIS_LDFLAGS) 
+HIREDIS_DYLIB ?= $(HIREDIS_LDFLAGS) -lhiredis -rpath=$(SOURCEDIR)
+HIREDIS_LIB_FLAGS ?= $(HIREDIS_STLIB)
+ifeq ($(HIREDIS_USE_DYLIB),1)
+HIREDIS_LIB_FLAGS = $(HIREDIS_DYLIB)
+endif
 
 # threadpool
 THREADPOOL_DIR = ${SOURCEDIR}/threadpool
@@ -34,34 +40,47 @@ DEP_DIR = ${SOURCEDIR}/dep
 DEP_CFLAGS ?= -I$(DEP_DIR)
 
 SOURCEDIR=$(shell pwd -P)
-CC_SOURCES = $(wildcard $(SOURCEDIR)/*.c) $(wildcard $(DEP_DIR)/*.c) $(wildcard $(THREADPOOL_DIR)/thpool.c)
+CC_SOURCES = $(wildcard $(SOURCEDIR)/*.c) \
+	$(wildcard $(THREADPOOL_DIR)/thpool.c) \
+	$(wildcard $(DEP_DIR)/*.c) 
 CC_OBJECTS = $(sort $(patsubst %.c, %.o, $(CC_SOURCES)))
 
 
-all: init redisxslot.so
+all: init redisxslot.so ldd_so
+
+help:
+	@echo "make HIREDIS_USE_DYLIB=1 , linker with use hiredis.so"
 
 init:
 	@git submodule init
 	@git submodule update
-#	@make -C $(HIREDIS_DIR)
+	@make -C $(HIREDIS_DIR) CFLAGS="-fvisibility=hidden" LDFLAGS="-fvisibility=hidden"
+ifeq ($(HIREDIS_USE_DYLIB),1)
+	@rm -rvf $(SOURCEDIR)/libhiredis.so.1.1.0
+	@ln -s $(HIREDIS_DIR)/libhiredis.so $(SOURCEDIR)/libhiredis.so.1.1.0
+endif
 
 ${SOURCEDIR}/module.o: ${SOURCEDIR}/module.c
-	$(CC) -c -o $@ $(SHOBJ_CFLAGS) $(THREADPOOL_CFLAGS) $(DEP_CFLAGS) $<
+	$(CC) -c -o $@ $(SHOBJ_CFLAGS) $(DEP_CFLAGS) $(THREADPOOL_CFLAGS) $(HIREDIS_CFLAGS) $< 
 
 ${SOURCEDIR}/redisxslot.o: ${SOURCEDIR}/redisxslot.c
-	$(CC) -c -o $@ $(SHOBJ_CFLAGS) $(THREADPOOL_CFLAGS) $(DEP_CFLAGS) $<
+	$(CC) -c -o $@ $(SHOBJ_CFLAGS) $(DEP_CFLAGS) $(THREADPOOL_CFLAGS) $(HIREDIS_CFLAGS) $<
 
 %.o: %.c
 	$(CC) -c -o $@ $(SHOBJ_CFLAGS) $<
 
-
 redisxslot.so: $(CC_OBJECTS)
-	$(LD) -o $@ $(CC_OBJECTS) \
-	$(SHOBJ_LDFLAGS) $(APPLE_LIBS) \
+	$(LD) -o $@ $(HIREDIS_LIB_FLAGS) $(CC_OBJECTS) \
+	$(SHOBJ_LDFLAGS) \
+	$(APPLE_LIBS) \
 	-lc
+
+ldd_so:
+	@ldd $(SOURCEDIR)/redisxslot.so
 
 clean:
 	cd $(SOURCEDIR) && rm -rvf *.xo *.so *.o *.a
 	cd $(SOURCEDIR)/dep && rm -rvf *.xo *.so *.o *.a
 	cd $(THREADPOOL_DIR) && rm -rvf *.xo *.so *.o *.a
-#	cd $(HIREDIS_DIR) && make clean
+	cd $(HIREDIS_DIR) && make clean 
+	rm -rvf $(SOURCEDIR)/libhiredis.so.1.1.0

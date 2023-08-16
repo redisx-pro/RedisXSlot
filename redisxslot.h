@@ -35,7 +35,7 @@
 #define MAX_HASH_SLOTS_MASK 0x0000ffff
 #define MAX_HASH_SLOTS_SIZE (MAX_HASH_SLOTS_MASK + 1)
 #define MGRT_ONE_KEY_TIMEOUT 30  // 30s
-#define REDIS_LONGSTR_SIZE 21    /* Bytes needed for long -> str */
+#define REDIS_LONGSTR_SIZE 42    /* Bytes needed for long -> str */
 #define SLOTS_MGRT_ERR -1
 #define MAX_NUM_THREADS 128
 #define REDISXSLOT_APIVER_1 1

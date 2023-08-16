@@ -385,8 +385,10 @@ int SlotsRestore_RedisCommand(RedisModuleCtx* ctx, RedisModuleString** argv,
     for (int i = 0; i < n; i++) {
         // del -> add -> ttlms (>0)
         long long ttlms = 0;
-        if (RedisModule_StringToLongLong(argv[i * 3 + 2], &ttlms)
-            != REDISMODULE_OK) {
+        size_t ttllen;
+        const char* str_ttlms
+            = RedisModule_StringPtrLen(argv[i * 3 + 2], &ttllen);
+        if (!m_string2ll(str_ttlms, ttllen, &ttlms)) {
             RedisModule_ReplyWithError(ctx, REDISXSLOT_ERRORMSG_SYNTAX);
             FreeDumpObjs(objs, j);
             return REDISMODULE_ERR;

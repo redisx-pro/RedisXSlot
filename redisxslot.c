@@ -264,49 +264,61 @@ void SlotsMGRT_CloseTimedoutConns(RedisModuleCtx* ctx) {
     RedisModule_DictIteratorStop(di);
 }
 
+static void freeHiRedisSlotsRestoreArgs(char** argv, size_t* argvlen, int n) {
+    for (int i = 0; i < n; i++) {
+        RedisModule_Free(argv[i * 3 + 2]);
+    }
+    RedisModule_Free(argv);
+    RedisModule_Free(argvlen);
+}
+
 static int BatchSend_SlotsRestore(RedisModuleCtx* ctx,
                                   db_slot_mgrt_connect* conn,
                                   rdb_dump_obj* objs[], int n) {
     UNUSED(ctx);
-    // const char* argv[3 * n + 1];
-    const char** argv = RedisModule_Alloc(sizeof(char*) * 3 * n + 1);
+    // char* argv[3 * n + 1];
+    char** argv = RedisModule_Alloc(sizeof(char*) * 3 * n + 1);
     // size_t argvlen[3 * n + 1];
     size_t* argvlen = RedisModule_Alloc(sizeof(size_t) * 3 * n + 1);
     argv[0] = "SLOTSRESTORE";
-    argvlen[0] = 12;
+    argvlen[0] = strlen(argv[0]);
+    char buf[REDIS_LONGSTR_SIZE];
     for (int i = 0; i < n; i++) {
         size_t ksz, vsz;
-        const char* k = RedisModule_StringPtrLen(objs[i]->key, &ksz);
-        argv[i * 3 + 1] = k;
+        argv[i * 3 + 1] = (char*)RedisModule_StringPtrLen(objs[i]->key, &ksz);
         argvlen[i * 3 + 1] = ksz;
 
-        time_t ttlms = objs[i]->ttlms;
-        char buf[REDIS_LONGSTR_SIZE];
-        int len = m_ll2string(buf, sizeof(buf), (long)ttlms);
-        argv[i * 3 + 2] = buf;
-        argvlen[i * 3 + 2] = (size_t)len;
+        time_t ttlms = objs[i]->ttlms > 0 ? objs[i]->ttlms : 0;
+        argvlen[i * 3 + 2] = m_ll2string(buf, sizeof(buf), (long long)ttlms);
+        argv[i * 3 + 2] = RedisModule_Strdup(buf);
 
-        const char* v = RedisModule_StringPtrLen(objs[i]->val, &vsz);
-        argv[i * 3 + 3] = v;
+        argv[i * 3 + 3] = (char*)RedisModule_StringPtrLen(objs[i]->val, &vsz);
         argvlen[i * 3 + 3] = vsz;
     }
 
-    redisReply* rr = redisCommandArgv(conn->conn_ctx, 3 * n + 1, argv, argvlen);
+    redisReply* rr = redisCommandArgv(
+        conn->conn_ctx, 3 * n + 1, (const char**)argv, (const size_t*)argvlen);
+    if (conn->conn_ctx->err) {
+        RedisModule_Log(ctx, REDISMODULE_LOGLEVEL_WARNING, "errno %d errstr %s",
+                        conn->conn_ctx->err, conn->conn_ctx->errstr);
+        freeHiRedisSlotsRestoreArgs(argv, argvlen, n);
+        return SLOTS_MGRT_ERR;
+    }
     if (rr == NULL) {
-        RedisModule_Free(argv);
-        RedisModule_Free(argvlen);
+        RedisModule_Log(ctx, REDISMODULE_LOGLEVEL_WARNING, "reply is NULL");
+        freeHiRedisSlotsRestoreArgs(argv, argvlen, n);
         return SLOTS_MGRT_ERR;
     }
     if (rr->type == REDIS_REPLY_ERROR) {
+        RedisModule_Log(ctx, REDISMODULE_LOGLEVEL_WARNING, "reply err %s",
+                        rr->str);
         freeReplyObject(rr);
-        RedisModule_Free(argv);
-        RedisModule_Free(argvlen);
+        freeHiRedisSlotsRestoreArgs(argv, argvlen, n);
         return SLOTS_MGRT_ERR;
     }
 
     freeReplyObject(rr);
-    RedisModule_Free(argv);
-    RedisModule_Free(argvlen);
+    freeHiRedisSlotsRestoreArgs(argv, argvlen, n);
 
     return n;
 }
@@ -320,8 +332,8 @@ static int Pipeline_Restore(RedisModuleCtx* ctx, db_slot_mgrt_connect* conn,
         const char* v = RedisModule_StringPtrLen(objs[i]->val, &vsz);
         time_t ttlms = objs[i]->ttlms;
 
-        redisAppendCommand(conn->conn_ctx, "RESTORE %b %ld %b", k, ksz, ttlms,
-                           v, vsz);
+        redisAppendCommand(conn->conn_ctx, "RESTORE %b %ld %b replace", k, ksz,
+                           ttlms, v, vsz);
     }
 
     redisReply* rr;
@@ -490,7 +502,7 @@ static int migrateKeys(RedisModuleCtx* ctx, const sds host, const sds port,
     }
 
     // migrate
-    ret = MGRT(ctx, host, port, timeoutMS, objs, ret, mgrtType);
+    ret = MGRT(ctx, host, port, timeoutMS, objs, j, mgrtType);
     if (ret == SLOTS_MGRT_ERR) {
         FreeDumpObjs(objs, j);
         return SLOTS_MGRT_ERR;

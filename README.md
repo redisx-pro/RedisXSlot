@@ -22,7 +22,7 @@
     use `SLOTSMGRTTAGSLOT` cmd to migrate slot's key with same tag,
     default use slotsrestore batch send key, ttlms, dump rdb val ... ( restore with replace)
     if migrate cmd use withretore, pipeline buff to send key ttlms (restore with replace)
-7. `SLOTSRESTORE` if num_threads>0, init thread pool size to do restore one key job.
+7. `SLOTSRESTORE` if num_threads>0, init thread pool size to do restore one key job. loadmodule like this `./redis/src/redis-server --port 6379 --loadmodule ./redisxslot.so 1024 4 --dbfilename dump.6379.rdb`
 # Build & LoadModule
 ```shell
 git clone https://github.com/weedge/redisxslot.git
@@ -33,6 +33,8 @@ cd redis && make && cd ..
 ./redis/src/redis-server --port 6379 --loadmodule ./redisxslot/redisxslot.so --dbfilename dump.6379.rdb
 ```
 Tips if use vscode debug, u can reference [docs/launch.json](./docs/launch.json)
+# Release
+use conanfile py script todo ci with makefile release.
 # Cmd Case
 ```shell
 127.0.0.1:6660> setex 122{tag} 86400 v3
@@ -86,3 +88,7 @@ OK
 4) "100"
 ```
 Tips: if use codis-proxy, codis-dashboard config set `migration_method = "sync"`
+
+# SuperMarioBros
+1. [xdis-storager](https://github.com/weedge/xdis-storager)
+2. [xdis-tikv](https://github.com/weedge/xdis-tikv)

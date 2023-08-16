@@ -752,14 +752,12 @@ int SlotsMGRT_TagSlotKeys(RedisModuleCtx* ctx, const char* host,
     if (de == NULL) {
         return 0;
     }
-    const sds k = dictGetKey(de);
-    RedisModuleString* key = RedisModule_CreateString(ctx, k, sdslen(k));
+    RedisModuleString* key = dictGetKey(de);
     int ret = SlotsMGRT_TagKeys(ctx, host, port, timeout, key, mgrtType);
     if (ret > 0) {
         // should sub cron_loop(server loop) to del
         // m_dictDelete(db_slot_infos[db].slotkey_tables[slot], k);
     }
-    RedisModule_FreeString(ctx, key);
     return ret;
 }
 

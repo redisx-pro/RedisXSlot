@@ -50,6 +50,7 @@ all: init redisxslot.so ldd_so
 
 help:
 	@echo "make HIREDIS_USE_DYLIB=1 , linker with use hiredis.so"
+	@echo "make HIREDIS_USE_DYLIB=1 HIREDIS_RUNTIME_DIR=/usr/local//usr/local/lib ,if pkg install hiredis, linker with HIREDIS_RUNTIME_DIR use hiredis.so"
 
 init:
 	@git submodule init

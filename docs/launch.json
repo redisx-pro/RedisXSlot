@@ -1,0 +1,140 @@
+{
+    // https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "6379-redisxslot",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/../redis/src/redis-server",
+            "args": [
+                "--port 6379",
+                "--loadmodule  ${workspaceFolder}/redisxslot.so",
+                "--dbfilename dump.6379.rdb",
+            ],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}",
+            "environment": [
+                {
+                    "name": "LD_LIBRARY_PATH",
+                    "value": "${workspaceFolder}"
+                },
+            ],
+            "externalConsole": false,
+            "internalConsoleOptions": "openOnSessionStart",
+            "linux": {
+                "MIMode": "gdb",
+                "miDebuggerPath": "/usr/bin/gdb"
+            },
+            "osx": {
+                "MIMode": "lldb"
+            },
+            "windows": {
+                "MIMode": "gdb",
+                "miDebuggerPath": "C:\\MinGw\\bin\\gdb.exe"
+            }
+        },
+        {
+            "name": "6372-thread-redisxslot",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/../redis/src/redis-server",
+            "args": [
+                "--port 6372",
+                "--loadmodule ${workspaceFolder}/redisxslot.so 1024 4",
+                "--dbfilename dump.6372.rdb",
+            ],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}",
+            "environment": [],
+            "externalConsole": false,
+            "internalConsoleOptions": "openOnSessionStart",
+            "MIMode": "gdb"
+        },
+        {
+            "name": "6372-redisxslot",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/../redis/src/redis-server",
+            "args": [
+                "--port 6372",
+                "--loadmodule  ${workspaceFolder}/redisxslot.so",
+                "--dbfilename dump.6372.rdb",
+            ],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}",
+            "environment": [],
+            "externalConsole": false,
+            "internalConsoleOptions": "openOnSessionStart",
+            "MIMode": "gdb"
+        },
+        {
+            "name": "datatype",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/../redis/src/redis-server",
+            "args": [
+                //"./redis.conf",
+                "--loadmodule  ${workspaceFolder}/../redis/tests/modules/datatype.so",
+                "--dbfilename dump.datatype.rdb",
+            ],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}",
+            "environment": [],
+            "externalConsole": false,
+            "internalConsoleOptions": "openOnSessionStart",
+            "MIMode": "gdb"
+        },
+        {
+            "name": "datatype2",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/../redis/src/redis-server",
+            "args": [
+                //"./redis.conf",
+                "--loadmodule  ${workspaceFolder}/../redis/tests/modules/datatype2.so",
+                "--dbfilename dump.datatype2.rdb",
+            ],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}",
+            "environment": [],
+            "externalConsole": false,
+            "internalConsoleOptions": "openOnSessionStart",
+            "MIMode": "gdb"
+        },
+        {
+            "name": "basics",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/../redis/src/redis-server",
+            "args": [
+                //"./redis.conf",
+                "--loadmodule  ${workspaceFolder}/../redis/tests/modules/basics.so",
+                "--dbfilename dump.basics.rdb",
+            ],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}",
+            "environment": [],
+            "externalConsole": false,
+            "internalConsoleOptions": "openOnSessionStart",
+            "MIMode": "gdb"
+        },
+        {
+            "name": "hooks",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/../redis/src/redis-server",
+            "args": [
+                //"./redis.conf",
+                "--loadmodule  ${workspaceFolder}/../redis/tests/modules/hooks.so",
+                "--dbfilename dump.hooks.rdb",
+            ],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}",
+            "environment": [],
+            "externalConsole": false,
+            "internalConsoleOptions": "openOnSessionStart",
+            "MIMode": "gdb"
+        },
+    ]
+}

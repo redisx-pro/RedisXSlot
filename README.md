@@ -1,6 +1,6 @@
 # RedisxSlot
 
-**Supported redis version**: redis >= 7.0
+**Supported redis version**: redis >= 6.0
 1. redis >= 5.0 (use module `dict/zset` api; if use 4.\*.\*, cp `dict/zset` op from redis do the same op, use `RedisModule_SubscribeToKeyspaceEvents` api sub keyspace events,see `RedisModuleEventCallback` api help doc detail)
 2. redis >= 6.0 (use module `RedisModule_NotifyKeyspaceEvent` and Server events definitions `RedisModuleEvent_**` api, sub CronLoop(serverCron) event to do resize/rehash dict)
 3. redis >= 7.0 (use module `RedisModuleEvent_EVENTLOOP` api and use AE api with hiredis(1.2) adapter to connect)
@@ -8,17 +8,32 @@
 **Tips**: use `ruby gendoc.rb | less` or `cat Module_Call | less` see api help doc,hello** example and test/modules case.
 
 # Feature
-1. load module init hash slot size, defualt size 2^10, max size 2^16. (once make sure the slot size, don't change it)
-2. load module init activerehashing from config, used to sub server event to rehash slot keys dict 
-3. sub ServerEvent `CronLoop(ServerLoop),FlushDB,Shutdown`
+1. load module init hash slot size, default size 2^10, max size 2^16. (once make sure the slot size, don't change it)
+2. load module init activerehashing,databases from config, activerehashing used to sub server event to rehash slot keys dict 
+3. load module init num_threads, if thread_num>0,init thread pool size to do migrate job, default donot use thread pool.  
+4. sub ServerEvent `CronLoop(ServerLoop),FlushDB,Shutdown`
     1. sub CronLoop server event hook to resize/rehash dict (db slot keys tables)
     2. sub FlushDB server event hook to delete one/all dict (db slot keys tables)
     2. sub Shutdown server event hook to release dicts (db slot keys tables) and free memory.
-4. sub KeyspaceEvents `STRING,LIST,HAHS,SET,ZSET, LOADED; GENERIC, EXPIRED`
-    1. sub keyspaces `STRING,LIST,HAHS,SET,ZSET, LOADED` notify event hook to add dict/skiplist keys
+5. sub KeyspaceEvents `STRING,LIST,HASH,SET,ZSET, LOADED; GENERIC, EXPIRED`
+    1. sub keyspaces `STRING,LIST,HASH,SET,ZSET, LOADED` notify event hook to add dict/skiplist keys
     2. sub keyspaces `GENERIC, EXPIRED` notify event hook to delete dict/skiplist keys
-5. support slot tag key migrate, for (smart client)/proxy)'s configSrv admin contoller lay use it.
-    use `SLOTSMGRTTAGSLOT` cmd to migrate slot's key with same tag
+6. support slot tag key migrate, for (smart client)/proxy)'s configSrv admin contoller lay use it.
+    use `SLOTSMGRTTAGSLOT` cmd to migrate slot's key with same tag,
+    default use slotsrestore batch send key, ttlms, dump rdb val ... ( restore with replace)
+    if migrate cmd use withretore, pipeline buff to send key ttlms (restore with replace)
+7. `SLOTSRESTORE` if num_threads>0, init thread pool size to do restore one key job.
+# Build & LoadModule
+```shell
+git clone https://github.com/weedge/redisxslot.git
+# make help, default with hiredis static lib
+cd redisxslot && make && cd ..
+git clone https://github.com/redis/redis.git
+cd redis && make && cd ..
+./redis/src/redis-server --port 6379 --loadmodule ./redisxslot/redisxslot.so --dbfilename dump.6379.rdb
+```
+Tips if use vscode debug, u can reference [docs/launch.json](./docs/launch.json)
+# Cmd Case
 ```shell
 127.0.0.1:6660> setex 122{tag} 86400 v3
 OK
@@ -34,7 +49,7 @@ OK
 (integer) 2
 127.0.0.1:6660> slotshashkey 123{tag}
 1) (integer) 899
-127.0.0.1:6660> slotsinfo 899 0 withsize
+127.0.0.1:6660> slotsinfo 899 899
 1) 1) (integer) 899
    2) (integer) 6
 127.0.0.1:6660> SLOTSMGRTTAGSLOT 127.0.0.1 6666 300000 899
@@ -45,7 +60,7 @@ OK
 2) (integer) 0
 ```
 ```shell
-127.0.0.1:6666> slotsinfo 0 1024 withsize
+127.0.0.1:6666> slotsinfo 0 1024
 1) 1) (integer) 899
    2) (integer) 6
 127.0.0.1:6666> get 122{tag}
@@ -70,4 +85,4 @@ OK
 3) "z1"
 4) "100"
 ```
-tips: if use codis-proxy, codis-dashboard config set `migration_method = "sync"`
+Tips: if use codis-proxy, codis-dashboard config set `migration_method = "sync"`

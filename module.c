@@ -510,7 +510,7 @@ static int redisModule_SlotsInit(RedisModuleCtx* ctx, RedisModuleString** argv,
     }
     RedisModule_FreeString(ctx, str);
 
-    // databases
+    // hash_solts_size
     long long hash_slots_size = DEFAULT_HASH_SLOTS_SIZE;
     if (argc >= 1
         && RedisModule_StringToLongLong(argv[0], &hash_slots_size)
@@ -531,7 +531,7 @@ static int redisModule_SlotsInit(RedisModuleCtx* ctx, RedisModuleString** argv,
     // num_threads
     long long num_threads = 0;
     if (argc >= 2
-        && RedisModule_StringToLongLong(argv[0], &num_threads)
+        && RedisModule_StringToLongLong(argv[1], &num_threads)
                == REDISMODULE_ERR) {
         return REDISMODULE_ERR;
     }

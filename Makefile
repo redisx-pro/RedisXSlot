@@ -7,7 +7,7 @@ ifeq ($(uname_S),Linux)
 	SHOBJ_LDFLAGS ?= -shared -fvisibility=hidden
 else
 	SHOBJ_CFLAGS ?= -W -fPIC -Wall -dynamic -fno-common -g -ggdb -std=c99 -O0 -pthread -fvisibility=hidden
-	SHOBJ_LDFLAGS ?= -bundle -undefined dynamic_lookup -fvisibility=hidden
+	SHOBJ_LDFLAGS ?= -bundle -undefined dynamic_lookup -keep_private_externs
 endif
 
 # OS X 11.x doesn't have /usr/lib/libSystem.dylib and needs an explicit setting.
@@ -23,10 +23,19 @@ endif
 HIREDIS_DIR = ${SOURCEDIR}/hiredis
 HIREDIS_RUNTIME_DIR ?= $(SOURCEDIR)
 HIREDIS_CFLAGS ?= -I$(HIREDIS_DIR) -I$(HIREDIS_DIR)/adapters
-HIREDIS_LDFLAGS ?= -L$(HIREDIS_DIR) $(HIREDIS_CFLAGS)
-HIREDIS_STLIB ?= $(HIREDIS_DIR)/libhiredis.a $(HIREDIS_LDFLAGS) 
+HIREDIS_LDFLAGS ?= -L$(HIREDIS_DIR)
+HIREDIS_STLIB ?= $(HIREDIS_DIR)/libhiredis.a
+ifeq ($(uname_S),Darwin)
+HIREDIS_DYLIB ?= $(HIREDIS_LDFLAGS) -lhiredis -rpath $(SOURCEDIR)
+else
 HIREDIS_DYLIB ?= $(HIREDIS_LDFLAGS) -lhiredis -rpath=$(SOURCEDIR)
+endif
+
+ifeq ($(uname_S),Darwin)
 HIREDIS_LIB_FLAGS ?= $(HIREDIS_STLIB)
+else
+HIREDIS_LIB_FLAGS ?= $(HIREDIS_STLIB) $(HIREDIS_CFLAGS)
+endif
 ifeq ($(HIREDIS_USE_DYLIB),1)
 HIREDIS_LIB_FLAGS = $(HIREDIS_DYLIB)
 endif
@@ -71,13 +80,17 @@ ${SOURCEDIR}/redisxslot.o: ${SOURCEDIR}/redisxslot.c
 	$(CC) -c -o $@ $(SHOBJ_CFLAGS) $<
 
 redisxslot.so: $(CC_OBJECTS)
-	$(LD) -o $@ $(HIREDIS_LIB_FLAGS) $(CC_OBJECTS) \
+	$(LD) -o $@ ${HIREDIS_LIB_FLAGS} $(CC_OBJECTS) \
 	$(SHOBJ_LDFLAGS) \
 	$(APPLE_LIBS) \
 	-lc
 
 ldd_so:
+ifeq ($(uname_S),Darwin)
+	@otool -L $(SOURCEDIR)/redisxslot.so
+else
 	@ldd $(SOURCEDIR)/redisxslot.so
+endif
 
 clean:
 	cd $(SOURCEDIR) && rm -rvf *.xo *.so *.o *.a

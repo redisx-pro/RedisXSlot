@@ -163,13 +163,13 @@ int SlotsMGRT_OneKey(RedisModuleCtx* ctx, const char* host, const char* port,
                      const char* mgrtType);
 int SlotsMGRT_SlotOneKey(RedisModuleCtx* ctx, const char* host,
                          const char* port, time_t timeout, int slot,
-                         const char* mgrtType);
+                         const char* mgrtType, int* left);
 int SlotsMGRT_TagKeys(RedisModuleCtx* ctx, const char* host, const char* port,
                       time_t timeout, RedisModuleString* key,
-                      const char* mgrtType);
+                      const char* mgrtType, int* left);
 int SlotsMGRT_TagSlotKeys(RedisModuleCtx* ctx, const char* host,
                           const char* port, time_t timeout, int slot,
-                          const char* mgrtType);
+                          const char* mgrtType, int* left);
 int SlotsMGRT_Restore(RedisModuleCtx* ctx, rdb_dump_obj* objs[], int n);
 void SlotsMGRT_Scan(RedisModuleCtx* ctx, int slot, unsigned long count,
                     unsigned long cursor, list* l);

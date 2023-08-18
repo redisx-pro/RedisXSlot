@@ -689,7 +689,7 @@ int SlotsMGRT_Restore(RedisModuleCtx* ctx, rdb_dump_obj* objs[], int n) {
 
 int SlotsMGRT_SlotOneKey(RedisModuleCtx* ctx, const char* host,
                          const char* port, time_t timeout, int slot,
-                         const char* mgrtType) {
+                         const char* mgrtType, int* left) {
     int db = RedisModule_GetSelectedDb(ctx);
     const m_dictEntry* de
         = m_dictGetRandomKey(db_slot_infos[db].slotkey_tables[slot]);
@@ -708,12 +708,15 @@ int SlotsMGRT_SlotOneKey(RedisModuleCtx* ctx, const char* host,
         // m_dictDelete(db_slot_infos[db].slotkey_tables[slot], k);
     }
     RedisModule_FreeString(ctx, key);
+    if (left != NULL) {
+        *left = dictSize(db_slot_infos[db].slotkey_tables[slot]);
+    }
     return ret;
 }
 
 int SlotsMGRT_TagKeys(RedisModuleCtx* ctx, const char* host, const char* port,
                       time_t timeout, RedisModuleString* key,
-                      const char* mgrtType) {
+                      const char* mgrtType, int* left) {
     const char* k = RedisModule_StringPtrLen(key, NULL);
     uint32_t crc;
     int hastag;
@@ -766,12 +769,15 @@ int SlotsMGRT_TagKeys(RedisModuleCtx* ctx, const char* host, const char* port,
     int ret = migrateKeys(ctx, (const sds)host, (const sds)port, timeout, keys,
                           n, (const sds)mgrtType);
     RedisModule_Free(keys);
+    if (left != NULL) {
+        *left = dictSize(db_slot_infos[db].slotkey_tables[slot]);
+    }
     return ret;
 }
 
 int SlotsMGRT_TagSlotKeys(RedisModuleCtx* ctx, const char* host,
                           const char* port, time_t timeout, int slot,
-                          const char* mgrtType) {
+                          const char* mgrtType, int* left) {
     int db = RedisModule_GetSelectedDb(ctx);
     const m_dictEntry* de
         = m_dictGetRandomKey(db_slot_infos[db].slotkey_tables[slot]);
@@ -779,7 +785,7 @@ int SlotsMGRT_TagSlotKeys(RedisModuleCtx* ctx, const char* host,
         return 0;
     }
     RedisModuleString* key = dictGetKey(de);
-    int ret = SlotsMGRT_TagKeys(ctx, host, port, timeout, key, mgrtType);
+    int ret = SlotsMGRT_TagKeys(ctx, host, port, timeout, key, mgrtType, left);
     if (ret > 0) {
         // should sub cron_loop(server loop) to del
         // m_dictDelete(db_slot_infos[db].slotkey_tables[slot], k);

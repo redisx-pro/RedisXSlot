@@ -14,12 +14,12 @@ HIREDIS_CFLAGS ?= -I$(HIREDIS_DIR) -I$(HIREDIS_DIR)/adapters
 HIREDIS_LDFLAGS ?= -L$(HIREDIS_DIR)
 HIREDIS_STLIB ?= $(HIREDIS_DIR)/libhiredis.a
 ifeq ($(uname_S),Darwin)
-HIREDIS_DYLIB ?= $(HIREDIS_LDFLAGS) -lhiredis -rpath $(SOURCEDIR)
+HIREDIS_DYLIB ?= $(HIREDIS_LDFLAGS) -lhiredis -rpath $(HIREDIS_RUNTIME_DIR)
 else
-HIREDIS_DYLIB ?= $(HIREDIS_LDFLAGS) -lhiredis -rpath=$(SOURCEDIR)
+HIREDIS_DYLIB ?= $(HIREDIS_LDFLAGS) -lhiredis -rpath=$(HIREDIS_RUNTIME_DIR)
 endif
 
-HIREDIS_LIB_FLAGS ?= $(HIREDIS_LDFLAGS) -lhiredis
+HIREDIS_LIB_FLAGS ?= $(HIREDIS_LDFLAGS) $(HIREDIS_DIR)/libhiredis.a
 ifeq ($(HIREDIS_USE_DYLIB),1)
 HIREDIS_LIB_FLAGS = $(HIREDIS_DYLIB)
 endif
@@ -77,8 +77,8 @@ init:
 	@make -C $(SDK_DIR)/rmutil
 	@make -C $(HIREDIS_DIR) CFLAGS="-fvisibility=hidden" LDFLAGS="-fvisibility=hidden"
 ifeq ($(HIREDIS_USE_DYLIB),1)
-	@rm -rvf $(SOURCEDIR)/libhiredis.so.1.1.0
-	@ln -s $(HIREDIS_DIR)/libhiredis.so $(SOURCEDIR)/libhiredis.so.1.1.0
+	@rm -rvf $(HIREDIS_RUNTIME_DIR)/libhiredis.so.1.1.0
+	@ln -s $(HIREDIS_DIR)/libhiredis.so $(HIREDIS_RUNTIME_DIR)/libhiredis.so.1.1.0
 endif
 
 ${SOURCEDIR}/module.o: ${SOURCEDIR}/module.c
@@ -119,4 +119,4 @@ clean:
 	cd $(THREADPOOL_DIR) && rm -rvf *.xo *.so *.o *.a
 	cd $(HIREDIS_DIR) && make clean 
 	cd $(SDK_DIR)/rmutil && make clean 
-	rm -rvf $(SOURCEDIR)/libhiredis.so.1.1.0
+	rm -rvf $(HIREDIS_RUNTIME_DIR)/libhiredis.so.1.1.0

@@ -229,16 +229,16 @@ int SlotsMGRTSlot_RedisCommand(RedisModuleCtx* ctx, RedisModuleString** argv,
         mgrtType = RedisModule_StringPtrLen(argv[5], NULL);
     }
 
-    int r = SlotsMGRT_SlotOneKey(ctx, host, port, timeout, (int)slot, mgrtType);
+    int left = 0;
+    int r = SlotsMGRT_SlotOneKey(ctx, host, port, timeout, (int)slot, mgrtType,
+                                 &left);
     if (r == SLOTS_MGRT_ERR) {
         RedisModule_ReplyWithError(ctx, REDISXSLOT_ERRORMSG_MGRT);
         return REDISMODULE_ERR;
     }
-    int db = RedisModule_GetSelectedDb(ctx);
     RedisModule_ReplyWithArray(ctx, 2);
     RedisModule_ReplyWithLongLong(ctx, r);
-    RedisModule_ReplyWithLongLong(
-        ctx, dictSize(db_slot_infos[db].slotkey_tables[slot]));
+    RedisModule_ReplyWithLongLong(ctx, left);
     return REDISMODULE_OK;
 }
 
@@ -266,7 +266,8 @@ int SlotsMGRTTagOne_RedisCommand(RedisModuleCtx* ctx, RedisModuleString** argv,
         mgrtType = RedisModule_StringPtrLen(argv[5], NULL);
     }
 
-    int r = SlotsMGRT_TagKeys(ctx, host, port, timeout, argv[4], mgrtType);
+    int r
+        = SlotsMGRT_TagKeys(ctx, host, port, timeout, argv[4], mgrtType, NULL);
     if (r == SLOTS_MGRT_ERR) {
         RedisModule_ReplyWithError(ctx, REDISXSLOT_ERRORMSG_MGRT);
         return REDISMODULE_ERR;
@@ -303,14 +304,17 @@ int SlotsMGRTTagSlot_RedisCommand(RedisModuleCtx* ctx, RedisModuleString** argv,
         mgrtType = RedisModule_StringPtrLen(argv[5], NULL);
     }
 
-    int r
-        = SlotsMGRT_TagSlotKeys(ctx, host, port, timeout, (int)slot, mgrtType);
+    int left = 0;
+    int r = SlotsMGRT_TagSlotKeys(ctx, host, port, timeout, (int)slot, mgrtType,
+                                  &left);
     if (r == SLOTS_MGRT_ERR) {
         RedisModule_ReplyWithError(ctx, REDISXSLOT_ERRORMSG_MGRT);
         return REDISMODULE_ERR;
     }
 
+    RedisModule_ReplyWithArray(ctx, 2);
     RedisModule_ReplyWithLongLong(ctx, r);
+    RedisModule_ReplyWithLongLong(ctx, left);
     return REDISMODULE_OK;
 }
 

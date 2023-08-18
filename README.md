@@ -50,9 +50,9 @@ OK
 (integer) 0
 127.0.0.1:6660> hmset 123{tag} f1 v1 f2 v2
 OK
-127.0.0.1:6660> lpush 123{tag} l1 l2
+127.0.0.1:6660> lpush 1234{tag} l1 l2
 (integer) 2
-127.0.0.1:6660> zadd 123{tag} 100 z1 10 z2
+127.0.0.1:6660> zadd 1235{tag} 100 z1 10 z2
 (integer) 2
 127.0.0.1:6660> slotshashkey 123{tag}
 1) (integer) 899

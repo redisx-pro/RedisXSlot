@@ -76,6 +76,8 @@
 #define CMD_NONE 0
 #define CMD_RENAME 1
 #define CMD_MOVE 2
+/* redis version */
+#define REDIS_VERSION 60000 /*6.0.0*/
 
 // define macro
 #define UNUSED(V) ((void)V)

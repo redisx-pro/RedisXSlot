@@ -1,6 +1,6 @@
 CC=gcc
 # redis version >= 6.0.0
-REDIS_VERSION=6.0.0
+REDIS_VERSION ?= 60000
 
 # RedisModulesSDK
 SDK_DIR = ${SOURCEDIR}/RedisModulesSDK
@@ -41,10 +41,12 @@ endif
 uname_S := $(shell sh -c 'uname -s 2>/dev/null || echo not')
 # Compile flags for linux / osx
 ifeq ($(uname_S),Linux)
-	SHOBJ_CFLAGS ?= -I$(RM_INCLUDE_DIR) -W -fPIC -Wall -fno-common -g -ggdb -std=gnu99 -D_XOPEN_SOURCE=600 -O0 -pthread -fvisibility=hidden
+	SHOBJ_CFLAGS ?= -DREDIS_VERSION=$(REDIS_VERSION) -I$(RM_INCLUDE_DIR) \
+					-W -fPIC -Wall -fno-common -g -ggdb -std=gnu99 -D_XOPEN_SOURCE=600 -O0 -pthread -fvisibility=hidden
 	SHOBJ_LDFLAGS ?= -shared -Bsymbolic -fvisibility=hidden
 else
-	SHOBJ_CFLAGS ?= -I$(RM_INCLUDE_DIR) -W -fPIC -Wall -dynamic -fno-common -g -ggdb -std=gnu99 -O0 -pthread -fvisibility=hidden
+	SHOBJ_CFLAGS ?= -DREDIS_VERSION=$(REDIS_VERSION) -I$(RM_INCLUDE_DIR) \
+					-W -fPIC -Wall -dynamic -fno-common -g -ggdb -std=gnu99 -O0 -pthread -fvisibility=hidden
 	SHOBJ_LDFLAGS ?= -bundle -undefined dynamic_lookup -keep_private_externs
 endif
 
@@ -70,6 +72,7 @@ help:
 	@echo "RM_INCLUDE_DIR={redis_absolute_path}/src, include redismodule.h"
 	@echo "HIREDIS_USE_DYLIB=1, linker with use hiredis.so"
 	@echo "HIREDIS_USE_DYLIB=1 HIREDIS_RUNTIME_DIR=/usr/local/lib ,if pkg install hiredis, linker with HIREDIS_RUNTIME_DIR use hiredis.so"
+	@echo "REDIS_VERSION=6000, default 6000(6.0.0), use 70200(7.2.0) inlcude 7.2.0+ redismodule.h to use feature api"
 
 init:
 	@git submodule init

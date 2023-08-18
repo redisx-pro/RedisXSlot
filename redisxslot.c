@@ -176,6 +176,9 @@ static const char* slots_tag(const char* s, int* plen) {
 }
 
 static time_t get_unixtime(void) {
+#if (REDIS_VERSION == 70200)
+    return (time_t)(RedisModule_CachedMicroseconds() / 1e6);
+#endif
     return (time_t)(RedisModule_Milliseconds() / 1e3);
 }
 

@@ -37,25 +37,9 @@
 // 3. sub loaded notify event hook for db slot key meta info load from rdb
 
 /* Check if Redis version is compatible with the adapter. */
-static inline int redisModuleCompatibilityCheckV5(void) {
-    if (!RedisModule_CreateDict) {
-        return REDIS_ERR;
-    }
-    return REDIS_OK;
-}
-
 static inline int redisModuleCompatibilityCheckV6(void) {
-    if (!RedisModule_HoldString || !RedisModule_NotifyKeyspaceEvent
-        || !RedisModule_GetKeyspaceNotificationFlagsAll
+    if (!RedisModule_HoldString || !RedisModule_GetKeyspaceNotificationFlagsAll
         || !REDISMODULE_NOTIFY_LOADED) {
-        return REDIS_ERR;
-    }
-    return REDIS_OK;
-}
-
-static inline int redisModuleCompatibilityCheckV7(void) {
-    if (!RedisModule_EventLoopAdd || !RedisModule_EventLoopDel
-        || !RedisModule_CreateTimer || !RedisModule_StopTimer) {
         return REDIS_ERR;
     }
     return REDIS_OK;

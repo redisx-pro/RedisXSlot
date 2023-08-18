@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../RedisModulesSDK/redismodule.h"
+#include "redismodule.h"
 
 #define ZSKIPLIST_MAXLEVEL 64 /* Should be enough for 2^64 elements */
 #define ZSKIPLIST_P 0.25      /* Skiplist P = 1/4 */

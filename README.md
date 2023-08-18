@@ -1,11 +1,11 @@
 # RedisxSlot
 
 **Supported redis version**: redis >= 6.0
-1. redis >= 5.0 (use module `dict/zset` api; if use 4.\*.\*, cp `dict/zset` op from redis do the same op, use `RedisModule_SubscribeToKeyspaceEvents` api sub keyspace events,see `RedisModuleEventCallback` api help doc detail)
-2. redis >= 6.0 (use module `RedisModule_NotifyKeyspaceEvent` and Server events definitions `RedisModuleEvent_**` api, sub CronLoop(serverCron) event to do resize/rehash dict)
+1. redis >= 5.0 (use module `dict/zset` api; if use 4.\*.\*, cp `dict/zset` op from redis do the same op; use `RedisModule_SubscribeToKeyspaceEvents` api sub keyspace events,see `RedisModuleEventCallback` api help doc detail)
+2. redis >= 6.0 (use module `RedisModule_NotifyKeyspaceEvent` and Server events definitions `RedisModuleEvent_**` api, sub CronLoop(serverCron) event to do resize/rehash dict), `REDISMODULE_NOTIFY_LOADED` need load rdb init db slots keys.
 3. redis >= 7.0 (use module `RedisModuleEvent_EVENTLOOP` api and use AE api with hiredis(1.2) adapter to connect)
 
-**Tips**: use `ruby gendoc.rb | less` or `cat Module_Call | less` see api help doc,hello** example and test/modules case.
+**Tips**: use `ruby gendoc.rb | less` or `cat Module_Call | less` see api help doc or access [modules-api-ref](https://redis.io/docs/reference/modules/modules-api-ref/), hello** example and test/modules case.
 
 # Feature
 1. load module init hash slot size, default size 2^10, max size 2^16. (once make sure the slot size, don't change it)
@@ -32,9 +32,14 @@ git clone https://github.com/redis/redis.git
 cd redis && make && cd ..
 ./redis/src/redis-server --port 6379 --loadmodule ./redisxslot/redisxslot.so --dbfilename dump.6379.rdb
 ```
-Tips if use vscode debug, u can reference [docs/launch.json](./docs/launch.json)
+Tips: 
+1. if want spec redis version(>=6.0.0) run `make RM_INCLUDE_DIR=~/project/c/redisxslot/../redis/src`,default use latest version(redismodule.h)
+2. if use vscode debug, u can reference [docs/launch.json](./docs/launch.json)
 # Release
 use conanfile py script todo ci with makefile release.
+# Test
+1. need use redis tcl script `test_helper.tcl` to run test case；
+2. ci loadmodule use test case to Redis test suite and run all test case. 
 # Cmd Case
 ```shell
 127.0.0.1:6660> setex 122{tag} 86400 v3
@@ -54,10 +59,10 @@ OK
 127.0.0.1:6660> slotsinfo 899 899
 1) 1) (integer) 899
    2) (integer) 6
-127.0.0.1:6660> SLOTSMGRTTAGSLOT 127.0.0.1 6666 300000 899
+127.0.0.1:6660> SLOTSMGRTTAGSLOT 127.0.0.1 6666 3000 899
 1) (integer) 6
 2) (integer) 0
-127.0.0.1:6660> SLOTSMGRTTAGSLOT 127.0.0.1 6666 300000 899
+127.0.0.1:6660> SLOTSMGRTTAGSLOT 127.0.0.1 6666 3000 899
 1) (integer) 0
 2) (integer) 0
 ```

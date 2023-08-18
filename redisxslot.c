@@ -1,3 +1,31 @@
+/*
+ * Copyright (c) 2023, weedge <weege007 at gmail dot com>
+ * All rights reserved.
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions are met:
+ *
+ *   * Redistributions of source code must retain the above copyright notice,
+ *     this list of conditions and the following disclaimer.
+ *   * Redistributions in binary form must reproduce the above copyright
+ *     notice, this list of conditions and the following disclaimer in the
+ *     documentation and/or other materials provided with the distribution.
+ *   * Neither the name of Redis nor the names of its contributors may be used
+ *     to endorse or promote products derived from this software without
+ *     specific prior written permission.
+ *
+ * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+ * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+ * IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ * ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE
+ * LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+ * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+ * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+ * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+ * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+ * POSSIBILITY OF SUCH DAMAGE.
+ */
 #include "redisxslot.h"
 
 slots_meta_info g_slots_meta_info;
@@ -147,12 +175,15 @@ static const char* slots_tag(const char* s, int* plen) {
     return s + i;
 }
 
+static time_t get_unixtime(void) {
+    return (time_t)(RedisModule_Milliseconds() / 1e3);
+}
+
 static db_slot_mgrt_connect* SlotsMGRT_GetConnCtx(RedisModuleCtx* ctx,
                                                   const sds host,
                                                   const sds port,
                                                   struct timeval timeout) {
-    // time_t unixtime = time(NULL);
-    time_t unixtime = (time_t)(RedisModule_CachedMicroseconds() / 1e6);
+    time_t unixtime = get_unixtime();
 
     sds name = sdsempty();
     name = sdscatlen(name, host, sdslen(host));
@@ -174,13 +205,13 @@ static db_slot_mgrt_connect* SlotsMGRT_GetConnCtx(RedisModuleCtx* ctx,
         char errLog[200];
         sprintf(errLog, "Err: slotsmgrt connect to target %s:%s, error = '%s'",
                 host, port, c->errstr);
-        RedisModule_Log(ctx, REDISMODULE_LOGLEVEL_WARNING, "%s", errLog);
+        RedisModule_Log(ctx, "warning", "%s", errLog);
         sdsfree(name);
         return NULL;
     }
     redisSetTimeout(c, timeout);
-    RedisModule_Log(ctx, REDISMODULE_LOGLEVEL_NOTICE,
-                    "slotsmgrt: connect to target %s:%s", host, port);
+    RedisModule_Log(ctx, "notice", "slotsmgrt: connect to target %s:%s", host,
+                    port);
 
     conn = RedisModule_Alloc(sizeof(db_slot_mgrt_connect));
     conn->conn_ctx = c;
@@ -206,13 +237,13 @@ static void SlotsMGRT_CloseConn(RedisModuleCtx* ctx, const sds host,
     db_slot_mgrt_connect* conn = RedisModule_DictGetC(
         slotsmgrt_cached_ctx_connects, (void*)name, sdslen(name), NULL);
     if (conn == NULL) {
-        RedisModule_Log(ctx, REDISMODULE_LOGLEVEL_WARNING,
-                        "slotsmgrt: close target %s:%s again", host, port);
+        RedisModule_Log(ctx, "warning", "slotsmgrt: close target %s:%s again",
+                        host, port);
         sdsfree(name);
         return;
     }
-    RedisModule_Log(ctx, REDISMODULE_LOGLEVEL_NOTICE,
-                    "slotsmgrt: close target %s:%s ok", host, port);
+    RedisModule_Log(ctx, "notice", "slotsmgrt: close target %s:%s ok", host,
+                    port);
     // m_dictDelete(slotsmgrt_cached_ctx_connects, name);
     RedisModule_DictDelC(slotsmgrt_cached_ctx_connects, (void*)name,
                          sdslen(name), NULL);
@@ -227,8 +258,7 @@ static void SlotsMGRT_CloseConn(RedisModuleCtx* ctx, const sds host,
 // for server cron job to check timeout connect
 void SlotsMGRT_CloseTimedoutConns(RedisModuleCtx* ctx) {
     // maybe use cached server cron time, a little faster.
-    // time_t unixtime = time(NULL);
-    time_t unixtime = (time_t)(RedisModule_CachedMicroseconds() / 1e6);
+    time_t unixtime = get_unixtime();
 
     // m_dictIterator* di =
     // m_dictGetSafeIterator(slotsmgrt_cached_ctx_connects);
@@ -246,7 +276,7 @@ void SlotsMGRT_CloseTimedoutConns(RedisModuleCtx* ctx) {
     while ((k = RedisModule_DictNextC(di, &keyLen, (void**)&conn))) {
         if ((unixtime - conn->last_time) > MGRT_ONE_KEY_TIMEOUT) {
             RedisModule_Log(
-                ctx, REDISMODULE_LOGLEVEL_NOTICE,
+                ctx, "notice",
                 "slotsmgrt: timeout target %s, lasttime = %ld, now = %ld",
                 (sds)k, conn->last_time, unixtime);
 
@@ -299,19 +329,18 @@ static int BatchSend_SlotsRestore(RedisModuleCtx* ctx,
     redisReply* rr = redisCommandArgv(
         conn->conn_ctx, 3 * n + 1, (const char**)argv, (const size_t*)argvlen);
     if (conn->conn_ctx->err) {
-        RedisModule_Log(ctx, REDISMODULE_LOGLEVEL_WARNING, "errno %d errstr %s",
+        RedisModule_Log(ctx, "warning", "errno %d errstr %s",
                         conn->conn_ctx->err, conn->conn_ctx->errstr);
         freeHiRedisSlotsRestoreArgs(argv, argvlen, n);
         return SLOTS_MGRT_ERR;
     }
     if (rr == NULL) {
-        RedisModule_Log(ctx, REDISMODULE_LOGLEVEL_WARNING, "reply is NULL");
+        RedisModule_Log(ctx, "warning", "reply is NULL");
         freeHiRedisSlotsRestoreArgs(argv, argvlen, n);
         return SLOTS_MGRT_ERR;
     }
     if (rr->type == REDIS_REPLY_ERROR) {
-        RedisModule_Log(ctx, REDISMODULE_LOGLEVEL_WARNING, "reply err %s",
-                        rr->str);
+        RedisModule_Log(ctx, "warning", "reply err %s", rr->str);
         freeReplyObject(rr);
         freeHiRedisSlotsRestoreArgs(argv, argvlen, n);
         return SLOTS_MGRT_ERR;
@@ -590,11 +619,8 @@ static int restoreOneWithReplace(RedisModuleCtx* ctx, rdb_dump_obj* obj) {
         RedisModule_FreeCallReply(reply);
         return SLOTS_MGRT_ERR;
     }
-    if (RedisModule_NotifyKeyspaceEvent) {  // 6.0
-        notifyOne(ctx, obj->key);
-    } else {
-        Slots_Add(ctx, RedisModule_GetSelectedDb(ctx), obj->key);
-    }
+
+    notifyOne(ctx, obj->key);
     RedisModule_FreeCallReply(reply);
 
     return 1;

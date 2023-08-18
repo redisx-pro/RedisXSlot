@@ -1,6 +1,16 @@
+# ReidsXSlot Makefile
+# Copyright (C) 2023- weedge <weege007 at gmail dot com>
+# This file is released under the MIT license, see the LICENSE file
+
 CC=gcc
 # redis version >= 6.0.0
 REDIS_VERSION ?= 60000
+
+# redisxslot version
+REDISXSLOT_MAJOR=$(shell grep REDISXSLOT_MAJOR redisxslot.h | awk '{print $$3}')
+REDISXSLOT_MINOR=$(shell grep REDISXSLOT_MINOR redisxslot.h | awk '{print $$3}')
+REDISXSLOT_PATCH=$(shell grep REDISXSLOT_PATCH redisxslot.h | awk '{print $$3}')
+REDISXSLOT_SONAME=$(shell grep REDISXSLOT_SONAME redisxslot.h | awk '{print $$3}')
 
 # RedisModulesSDK
 SDK_DIR = ${SOURCEDIR}/RedisModulesSDK
@@ -112,8 +122,10 @@ redisxslot.so: $(CC_OBJECTS)
 ldd_so:
 ifeq ($(uname_S),Darwin)
 	@otool -L $(SOURCEDIR)/redisxslot.so
+	@sudo ln -s $(SOURCEDIR)/redisxslot.so $(SOURCEDIR)/redisxslot.dylib.$(REDISXSLOT_SONAME)
 else
 	@ldd $(SOURCEDIR)/redisxslot.so
+	@sudo ln -s $(SOURCEDIR)/redisxslot.so $(SOURCEDIR)/redisxslot.so.$(REDISXSLOT_SONAME)
 endif
 
 clean:
@@ -123,3 +135,4 @@ clean:
 	cd $(HIREDIS_DIR) && make clean 
 	cd $(SDK_DIR)/rmutil && make clean 
 	rm -rvf $(HIREDIS_RUNTIME_DIR)/libhiredis.so.1.1.0
+	rm -rvf $(SOURCEDIR)/redisxslot.so.$(REDISXSLOT_SONAME)

@@ -78,6 +78,11 @@
 #define CMD_MOVE 2
 /* redis version */
 #define REDIS_VERSION 60000 /*6.0.0*/
+/* redisxslot version for linker */
+#define REDISXSLOT_MAJOR 0
+#define REDISXSLOT_MINOR 1
+#define REDISXSLOT_PATCH 0
+#define REDISXSLOT_SONAME 0.1.0
 
 // define macro
 #define UNUSED(V) ((void)V)

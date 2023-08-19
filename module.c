@@ -479,7 +479,7 @@ static RedisModuleString* redisModule_GetConfigItem(RedisModuleCtx* ctx,
 
 static int redisModule_SlotsInit(RedisModuleCtx* ctx, RedisModuleString** argv,
                                  int argc) {
-    RedisModule_AutoMemory(ctx);
+    // RedisModule_AutoMemory(ctx);
     long long databases = 0;
     // databases
     RedisModuleString* str = redisModule_GetConfigItem(ctx, "databases");
@@ -533,7 +533,7 @@ static int redisModule_SlotsInit(RedisModuleCtx* ctx, RedisModuleString** argv,
         return REDISMODULE_ERR;
     }
 
-    Slots_Init(NULL, hash_slots_size, databases, num_threads, activerehashing);
+    Slots_Init(ctx, hash_slots_size, databases, num_threads, activerehashing);
     return REDISMODULE_OK;
 }
 
@@ -548,9 +548,12 @@ int htNeedsResize(dict* dict) {
 }
 /* If the percentage of used slots in the HT reaches HASHTABLE_MIN_FILL
  * we resize the hash table to save memory */
-void tryResizeDbSlotHashTables(int dbid, int slot) {
-    if (htNeedsResize(db_slot_infos[dbid].slotkey_tables[slot]))
+void tryResizeDbSlotHashTables(RedisModuleCtx* ctx, int dbid, int slot) {
+    if (htNeedsResize(db_slot_infos[dbid].slotkey_tables[slot])) {
+        RedisModule_Log(ctx, "verbose",
+                        "resizeDbSlotHashTables dbid %d slot %d", dbid, slot);
         m_dictResize(db_slot_infos[dbid].slotkey_tables[slot]);
+    }
 }
 /* Our hash table implementation performs rehashing incrementally while
  * we write/read from the hash table. Still if the server is idle, the hash
@@ -559,16 +562,18 @@ void tryResizeDbSlotHashTables(int dbid, int slot) {
  *
  * The function returns 1 if some rehashing was performed, otherwise 0
  * is returned. */
-int incrementallyDbSlotRehash(int dbid, int slot) {
+int incrementallyDbSlotRehash(RedisModuleCtx* ctx, int dbid, int slot) {
     /* Keys dictionary */
     if (dictIsRehashing(db_slot_infos[dbid].slotkey_tables[slot])) {
+        RedisModule_Log(ctx, "verbose",
+                        "rehashDbSlotHashTables dbid %d slot %d", dbid, slot);
         m_dictRehashMilliseconds(db_slot_infos[dbid].slotkey_tables[slot], 1);
         return 1; /* already used our millisecond for this loop... */
     }
     return 0;
 }
 
-void dbSlotCron(void) {
+void dbSlotCron(RedisModuleCtx* ctx) {
     /* Perform hash tables rehashing if needed, but only if there are no
      * other processes saving the DB on disk. Otherwise rehashing is bad
      * as will cause a lot of copy-on-write of memory pages. */
@@ -579,26 +584,35 @@ void dbSlotCron(void) {
      * DB we'll be able to start from the successive in the next
      * cron loop iteration. */
     static unsigned int resize_db = 0;
+    static unsigned int resize_db_slot = 0;
     static unsigned int rehash_db = 0;
+    int dbs_per_call = CRON_DBS_PER_CALL;
+    int db_slots_per_call = CRON_DB_SLOTS_PER_CALL;
+    /* Don't test more dbs slots than we have. */
+    if (dbs_per_call > (int)g_slots_meta_info.databases)
+        dbs_per_call = g_slots_meta_info.databases;
+    if (db_slots_per_call > (int)g_slots_meta_info.hash_slots_size)
+        db_slots_per_call = g_slots_meta_info.hash_slots_size;
 
-    // ReSize
-    for (int db = 0; db < g_slots_meta_info.databases; db++) {
-        for (int slot = 0; slot < (int)g_slots_meta_info.hash_slots_size;
-             slot++) {
-            tryResizeDbSlotHashTables(resize_db % g_slots_meta_info.databases,
-                                      slot);
-            resize_db++;
+    // ReSize try do db slot hash tables resize per call
+    for (int db = 0; db < dbs_per_call; db++) {
+        for (int slot = 0; slot < db_slots_per_call; slot++) {
+            tryResizeDbSlotHashTables(ctx, resize_db, resize_db_slot);
+            resize_db_slot++;
+            resize_db_slot %= g_slots_meta_info.hash_slots_size;
         }
+        resize_db++;
+        resize_db %= g_slots_meta_info.databases;
     }  // end for
 
-    // ReHash
+    // ReHash just try do one db slot hash table rehash
     if (!g_slots_meta_info.activerehashing) {
         return;
     }
     for (int db = 0; db < g_slots_meta_info.databases; db++) {
         for (int slot = 0; slot < (int)g_slots_meta_info.hash_slots_size;
              slot++) {
-            int work_done = incrementallyDbSlotRehash(db, slot);
+            int work_done = incrementallyDbSlotRehash(ctx, rehash_db, slot);
             if (work_done) {
                 /* If the function did some work, stop here, we'll do
                  * more at the next cron loop. */
@@ -624,9 +638,7 @@ void CronLoopCallback(RedisModuleCtx* ctx, RedisModuleEvent e, uint64_t sub,
     RedisModule_AutoMemory(ctx);
 
     RedisModuleCronLoop* ei = data;
-    RedisModule_Log(ctx, "debug", "CronLoopCallback hz %d sub %lu", ei->hz,
-                    sub);
-    dbSlotCron();
+    dbSlotCron(ctx);
     run_with_period(1000, ei->hz) {
         SlotsMGRT_CloseTimedoutConns(ctx);
     }
@@ -851,7 +863,7 @@ RedisModule_OnLoad(RedisModuleCtx* ctx, RedisModuleString** argv, int argc) {
 }
 
 int RedisModule_OnUnload(RedisModuleCtx* ctx) {
-    UNUSED(ctx);
-    Slots_Free(NULL);
+    // UNUSED(ctx)
+    Slots_Free(ctx);
     return REDISMODULE_OK;
 }

@@ -56,7 +56,7 @@ OK
 (integer) 2
 127.0.0.1:6660> slotshashkey 123{tag}
 1) (integer) 899
-127.0.0.1:6660> slotsinfo 899 899
+127.0.0.1:6660> slotsinfo 899 1
 1) 1) (integer) 899
    2) (integer) 6
 127.0.0.1:6660> SLOTSMGRTTAGSLOT 127.0.0.1 6666 3000 899

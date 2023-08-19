@@ -120,6 +120,7 @@ redisxslot.so: $(CC_OBJECTS)
 	-lc
 
 ldd_so:
+	@rm -rvf $(SOURCEDIR)/redisxslot.so.$(REDISXSLOT_SONAME)
 ifeq ($(uname_S),Darwin)
 	@otool -L $(SOURCEDIR)/redisxslot.so
 	@sudo ln -s $(SOURCEDIR)/redisxslot.so $(SOURCEDIR)/redisxslot.dylib.$(REDISXSLOT_SONAME)

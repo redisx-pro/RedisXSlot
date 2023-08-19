@@ -69,6 +69,9 @@
 #define SLOTS_MGRT_ERR -1
 #define MAX_NUM_THREADS 128
 #define REDISXSLOT_APIVER_1 1
+/* Hash table cron loop pre call db,slot num for resize rehash(hotkey) */
+#define CRON_DBS_PER_CALL 16
+#define CRON_DB_SLOTS_PER_CALL 1024
 /* Hash table parameters for resize */
 #define HASHTABLE_MIN_FILL 10           /* Minimal hash table fill 10% */
 #define HASHTABLE_MAX_LOAD_FACTOR 1.618 /* Maximum hash table load factor. */

@@ -87,7 +87,7 @@ help:
 init:
 	@git submodule init
 	@git submodule update
-	@make -C $(SDK_DIR)/rmutil
+	@make -C $(SDK_DIR)/rmutil CFLAGS="-g -fPIC -O0 -std=gnu99 -Wall -Wno-unused-function -fvisibility=hidden -I$(RM_INCLUDE_DIR)"
 	@make -C $(HIREDIS_DIR) OPTIMIZATION="-O0" CFLAGS="-fvisibility=hidden" LDFLAGS="-fvisibility=hidden"
 ifeq ($(HIREDIS_USE_DYLIB),1)
 	@rm -rvf $(HIREDIS_RUNTIME_DIR)/libhiredis.so.1.1.0

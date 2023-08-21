@@ -307,8 +307,7 @@ static void freeHiRedisSlotsRestoreArgs(char** argv, size_t* argvlen, int n) {
 }
 
 /*
- * return:
- *  err return  SLOTS_MGRT_ERR, ok return obj cn,
+ *  err return SLOTS_MGRT_ERR, ok return obj cn,
  */
 static int doSplitRestoreCommand(RedisModuleCtx* ctx,
                                  db_slot_mgrt_connect* conn, char** argv,

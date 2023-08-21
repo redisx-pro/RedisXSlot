@@ -64,8 +64,9 @@
 #define DEFAULT_HASH_SLOTS_SIZE (DEFAULT_HASH_SLOTS_MASK + 1)
 #define MAX_HASH_SLOTS_MASK 0x0000ffff
 #define MAX_HASH_SLOTS_SIZE (MAX_HASH_SLOTS_MASK + 1)
-#define MGRT_ONE_KEY_TIMEOUT 30  // 30s
-#define REDIS_LONGSTR_SIZE 42    /* Bytes needed for long -> str */
+#define MGRT_ONE_KEY_TIMEOUT 30              // 30s
+#define REDIS_LONGSTR_SIZE 42                /* Bytes needed for long -> str */
+#define REDIS_MGRT_CMD_PARAMS_SIZE 64 * 1024 /* send redis cmd params size */
 #define SLOTS_MGRT_ERR -1
 #define MAX_NUM_THREADS 128
 #define REDISXSLOT_APIVER_1 1
@@ -155,6 +156,9 @@ typedef struct _slots_restore_one_task_params {
     RedisModuleCtx* ctx;
     rdb_dump_obj* obj;
     int result_code;
+    // slot keys mutex lock
+    pthread_mutex_t mutex;
+    // pthread_cond_t cond;
 } slots_restore_one_task_params;
 
 // declare defined extern var to out use

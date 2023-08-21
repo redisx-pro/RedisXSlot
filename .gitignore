@@ -63,3 +63,4 @@ dkms.conf
 #exclude
 redis
 *.rdb
+.env/

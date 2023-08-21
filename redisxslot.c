@@ -213,8 +213,9 @@ static db_slot_mgrt_connect* SlotsMGRT_GetConnCtx(RedisModuleCtx* ctx,
         return NULL;
     }
     redisSetTimeout(c, timeout);
-    RedisModule_Log(ctx, "notice", "slotsmgrt: connect to target %s:%s", host,
-                    port);
+    RedisModule_Log(ctx, "notice",
+                    "slotsmgrt: connect to target %s:%s set timeout: %ld.%ld",
+                    host, port, timeout.tv_sec, timeout.tv_usec);
 
     conn = RedisModule_Alloc(sizeof(db_slot_mgrt_connect));
     conn->conn_ctx = c;
@@ -299,59 +300,104 @@ void SlotsMGRT_CloseTimedoutConns(RedisModuleCtx* ctx) {
 
 static void freeHiRedisSlotsRestoreArgs(char** argv, size_t* argvlen, int n) {
     for (int i = 0; i < n; i++) {
-        RedisModule_Free(argv[i * 3 + 2]);
+        RedisModule_Free(argv[i * 3 + 1]);
     }
     RedisModule_Free(argv);
     RedisModule_Free(argvlen);
+}
+
+/*
+ * return:
+ *  err return  SLOTS_MGRT_ERR, ok return obj cn,
+ */
+static int doSplitRestoreCommand(RedisModuleCtx* ctx,
+                                 db_slot_mgrt_connect* conn, char** argv,
+                                 size_t* argvlen, int start_pos, int end_pos) {
+    int obj_cn = end_pos - start_pos;
+    char** sub_argv = RedisModule_Alloc(sizeof(char*) * 3 * obj_cn + 1);
+    size_t* sub_argvlen = RedisModule_Alloc(sizeof(size_t) * 3 * obj_cn + 1);
+    sub_argv[0] = "SLOTSRESTORE";
+    // cp pointer
+    memcpy(&sub_argv[1], &argv[start_pos * 3], sizeof(char*) * obj_cn * 3);
+    sub_argvlen[0] = strlen(sub_argv[0]);
+    memcpy(&sub_argvlen[1], &argvlen[start_pos * 3],
+           sizeof(size_t) * obj_cn * 3);
+
+    redisReply* rr
+        = redisCommandArgv(conn->conn_ctx, 3 * obj_cn + 1,
+                           (const char**)sub_argv, (const size_t*)sub_argvlen);
+    if (conn->conn_ctx->err) {
+        RedisModule_Log(ctx, "warning", "errno %d errstr %s",
+                        conn->conn_ctx->err, conn->conn_ctx->errstr);
+        freeHiRedisSlotsRestoreArgs(sub_argv, sub_argvlen, 0);
+        return SLOTS_MGRT_ERR;
+    }
+    if (rr == NULL) {
+        RedisModule_Log(ctx, "warning", "reply is NULL");
+        freeHiRedisSlotsRestoreArgs(sub_argv, sub_argvlen, 0);
+        return SLOTS_MGRT_ERR;
+    }
+    if (rr->type == REDIS_REPLY_ERROR) {
+        RedisModule_Log(ctx, "warning", "reply err %s", rr->str);
+        freeReplyObject(rr);
+        freeHiRedisSlotsRestoreArgs(sub_argv, sub_argvlen, 0);
+        return SLOTS_MGRT_ERR;
+    }
+
+    RedisModule_Log(ctx, "notice", "start_pos %d end_pos %d send ok", start_pos,
+                    end_pos);
+
+    freeReplyObject(rr);
+    freeHiRedisSlotsRestoreArgs(sub_argv, sub_argvlen, 0);
+    return obj_cn;
 }
 
 static int BatchSend_SlotsRestore(RedisModuleCtx* ctx,
                                   db_slot_mgrt_connect* conn,
                                   rdb_dump_obj* objs[], int n) {
     UNUSED(ctx);
-    // char* argv[3 * n + 1];
-    char** argv = RedisModule_Alloc(sizeof(char*) * 3 * n + 1);
-    // size_t argvlen[3 * n + 1];
-    size_t* argvlen = RedisModule_Alloc(sizeof(size_t) * 3 * n + 1);
-    argv[0] = "SLOTSRESTORE";
-    argvlen[0] = strlen(argv[0]);
+    // char* argv[3 * n];
+    char** argv = RedisModule_Alloc(sizeof(char*) * 3 * n);
+    // size_t argvlen[3 * n];
+    size_t* argvlen = RedisModule_Alloc(sizeof(size_t) * 3 * n);
     char buf[REDIS_LONGSTR_SIZE];
+    size_t cmd_size = 0;
+    int start_pos = 0;
     for (int i = 0; i < n; i++) {
+        // split cmd to send,(todo: bigkey)
+        if (cmd_size > REDIS_MGRT_CMD_PARAMS_SIZE) {
+            if (doSplitRestoreCommand(ctx, conn, argv, argvlen, start_pos, i)
+                == SLOTS_MGRT_ERR) {
+                freeHiRedisSlotsRestoreArgs(argv, argvlen, i - start_pos);
+                return SLOTS_MGRT_ERR;
+            }
+            cmd_size = 0;
+            start_pos = i;
+        }
+
         size_t ksz, vsz;
-        argv[i * 3 + 1] = (char*)RedisModule_StringPtrLen(objs[i]->key, &ksz);
-        argvlen[i * 3 + 1] = ksz;
+        argv[i * 3 + 0] = (char*)RedisModule_StringPtrLen(objs[i]->key, &ksz);
+        argvlen[i * 3 + 0] = ksz;
+        cmd_size += argvlen[i * 3 + 0];
 
         time_t ttlms = objs[i]->ttlms > 0 ? objs[i]->ttlms : 0;
-        argvlen[i * 3 + 2] = m_ll2string(buf, sizeof(buf), (long long)ttlms);
-        argv[i * 3 + 2] = RedisModule_Strdup(buf);
+        argvlen[i * 3 + 1] = m_ll2string(buf, sizeof(buf), (long long)ttlms);
+        argv[i * 3 + 1] = RedisModule_Strdup(buf);
+        cmd_size += argvlen[i * 3 + 1];
 
-        argv[i * 3 + 3] = (char*)RedisModule_StringPtrLen(objs[i]->val, &vsz);
-        argvlen[i * 3 + 3] = vsz;
+        argv[i * 3 + 2] = (char*)RedisModule_StringPtrLen(objs[i]->val, &vsz);
+        argvlen[i * 3 + 2] = vsz;
+        cmd_size += argvlen[i * 3 + 2];
     }
 
-    redisReply* rr = redisCommandArgv(
-        conn->conn_ctx, 3 * n + 1, (const char**)argv, (const size_t*)argvlen);
-    if (conn->conn_ctx->err) {
-        RedisModule_Log(ctx, "warning", "errno %d errstr %s",
-                        conn->conn_ctx->err, conn->conn_ctx->errstr);
-        freeHiRedisSlotsRestoreArgs(argv, argvlen, n);
-        return SLOTS_MGRT_ERR;
-    }
-    if (rr == NULL) {
-        RedisModule_Log(ctx, "warning", "reply is NULL");
-        freeHiRedisSlotsRestoreArgs(argv, argvlen, n);
-        return SLOTS_MGRT_ERR;
-    }
-    if (rr->type == REDIS_REPLY_ERROR) {
-        RedisModule_Log(ctx, "warning", "reply err %s", rr->str);
-        freeReplyObject(rr);
+    if (doSplitRestoreCommand(ctx, conn, argv, argvlen, start_pos, n)
+        == SLOTS_MGRT_ERR) {
         freeHiRedisSlotsRestoreArgs(argv, argvlen, n);
         return SLOTS_MGRT_ERR;
     }
 
-    freeReplyObject(rr);
+    conn->last_time = get_unixtime();
     freeHiRedisSlotsRestoreArgs(argv, argvlen, n);
-
     return n;
 }
 
@@ -366,6 +412,7 @@ static int Pipeline_Restore(RedisModuleCtx* ctx, db_slot_mgrt_connect* conn,
 
         redisAppendCommand(conn->conn_ctx, "RESTORE %b %ld %b replace", k, ksz,
                            ttlms, v, vsz);
+        // todo pre split to chunk to send,(maybe think bigkey)
     }
 
     redisReply* rr;
@@ -641,6 +688,7 @@ static int restoreMutli(RedisModuleCtx* ctx, rdb_dump_obj* objs[], int n) {
 
 static void restoreOneTask(void* arg) {
     slots_restore_one_task_params* params = (slots_restore_one_task_params*)arg;
+    // todo lock slot keys restore
     params->result_code = restoreOneWithReplace(params->ctx, params->obj);
 }
 

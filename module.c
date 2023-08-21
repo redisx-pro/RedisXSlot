@@ -550,9 +550,11 @@ int htNeedsResize(dict* dict) {
  * we resize the hash table to save memory */
 void tryResizeDbSlotHashTables(RedisModuleCtx* ctx, int dbid, int slot) {
     if (htNeedsResize(db_slot_infos[dbid].slotkey_tables[slot])) {
-        RedisModule_Log(ctx, "verbose",
-                        "resizeDbSlotHashTables dbid %d slot %d", dbid, slot);
-        m_dictResize(db_slot_infos[dbid].slotkey_tables[slot]);
+        if (m_dictResize(db_slot_infos[dbid].slotkey_tables[slot]) == DICT_OK) {
+            RedisModule_Log(ctx, "notice",
+                            "resizeDbSlotHashTables dbid %d slot %d", dbid,
+                            slot);
+        }
     }
 }
 /* Our hash table implementation performs rehashing incrementally while
@@ -565,8 +567,8 @@ void tryResizeDbSlotHashTables(RedisModuleCtx* ctx, int dbid, int slot) {
 int incrementallyDbSlotRehash(RedisModuleCtx* ctx, int dbid, int slot) {
     /* Keys dictionary */
     if (dictIsRehashing(db_slot_infos[dbid].slotkey_tables[slot])) {
-        RedisModule_Log(ctx, "verbose",
-                        "rehashDbSlotHashTables dbid %d slot %d", dbid, slot);
+        RedisModule_Log(ctx, "notice", "rehashDbSlotHashTables dbid %d slot %d",
+                        dbid, slot);
         m_dictRehashMilliseconds(db_slot_infos[dbid].slotkey_tables[slot], 1);
         return 1; /* already used our millisecond for this loop... */
     }
@@ -857,7 +859,7 @@ RedisModule_OnLoad(RedisModuleCtx* ctx, RedisModuleString** argv, int argc) {
     CREATE_WRMCMD("slotsmgrttagslot", SlotsMGRTTagSlot_RedisCommand, 0, 0, 0);
     CREATE_WRMCMD("slotsrestore", SlotsRestore_RedisCommand, 0, 0, 0);
     CREATE_WRMCMD("slotsdel", SlotsDel_RedisCommand, 0, 0, 0);
-    // CREATE_WRMCMD("slotstest", SlotsTest_RedisCommand, 0, 0, 0);
+    CREATE_WRMCMD("slotstest", SlotsTest_RedisCommand, 0, 0, 0);
 
     return REDISMODULE_OK;
 }

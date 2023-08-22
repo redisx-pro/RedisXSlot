@@ -52,11 +52,11 @@ uname_S := $(shell sh -c 'uname -s 2>/dev/null || echo not')
 # Compile flags for linux / osx
 ifeq ($(uname_S),Linux)
 	SHOBJ_CFLAGS ?= -DREDIS_VERSION=$(REDIS_VERSION) -I$(RM_INCLUDE_DIR) \
-					-W -fPIC -Wall -fno-common -g -ggdb -std=gnu99 -D_XOPEN_SOURCE=600 -O0 -pthread -fvisibility=hidden
+					-W -fPIC -Wall -fno-common -g -ggdb -std=gnu99 -D_GNU_SOURCE -D_XOPEN_SOURCE=600 -O0 -pthread -fvisibility=hidden
 	SHOBJ_LDFLAGS ?= -shared -Bsymbolic -fvisibility=hidden
 else
 	SHOBJ_CFLAGS ?= -DREDIS_VERSION=$(REDIS_VERSION) -I$(RM_INCLUDE_DIR) \
-					-W -fPIC -Wall -dynamic -fno-common -g -ggdb -std=gnu99 -O0 -pthread -fvisibility=hidden
+					-W -fPIC -Wall -dynamic -fno-common -g -ggdb -std=gnu99 -D_GNU_SOURCE -O0 -pthread -fvisibility=hidden
 	SHOBJ_LDFLAGS ?= -bundle -undefined dynamic_lookup -keep_private_externs
 endif
 

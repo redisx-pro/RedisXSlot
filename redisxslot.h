@@ -41,6 +41,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h>
+#include <sys/syscall.h>
 #include <syslog.h>
 #include <time.h>
 #include <unistd.h>
@@ -64,9 +65,9 @@
 #define DEFAULT_HASH_SLOTS_SIZE (DEFAULT_HASH_SLOTS_MASK + 1)
 #define MAX_HASH_SLOTS_MASK 0x0000ffff
 #define MAX_HASH_SLOTS_SIZE (MAX_HASH_SLOTS_MASK + 1)
-#define MGRT_ONE_KEY_TIMEOUT 30              // 30s
-#define REDIS_LONGSTR_SIZE 42                /* Bytes needed for long -> str */
-#define REDIS_MGRT_CMD_PARAMS_SIZE 64 * 1024 /* send redis cmd params size */
+#define MGRT_ONE_KEY_TIMEOUT 30                 // 30s
+#define REDIS_LONGSTR_SIZE 42                   // Bytes needed for long -> str
+#define REDIS_MGRT_CMD_PARAMS_SIZE 1024 * 1024  // send redis cmd params size
 #define SLOTS_MGRT_ERR -1
 #define MAX_NUM_THREADS 128
 #define REDISXSLOT_APIVER_1 1
@@ -89,6 +90,7 @@
 #define REDISXSLOT_SONAME 0.1.0
 
 // define macro
+#define gettid() syscall(__NR_gettid)
 #define UNUSED(V) ((void)V)
 #define CREATE_CMD(name, tgt, attr, firstkey, lastkey, keystep)                \
     do {                                                                       \
@@ -135,10 +137,17 @@ typedef struct _db_slot_info {
     m_zskiplist* tagged_key_list;
 } db_slot_info;
 
-typedef struct _db_slot_mgrt_connet {
+typedef struct _slot_mgrt_connet_meta {
     int db;
     // todo: use `slotsmgrt.authset` cmd set host port pwd
     int authorized;
+    sds host;
+    sds port;
+    struct timeval timeout;
+} slot_mgrt_connet_meta;
+typedef struct _db_slot_mgrt_connet {
+    // pointer only one meta info per conn
+    slot_mgrt_connet_meta* meta;
     time_t last_time;
     redisContext* conn_ctx;
 } db_slot_mgrt_connect;
@@ -160,6 +169,16 @@ typedef struct _slots_restore_one_task_params {
     pthread_mutex_t mutex;
     // pthread_cond_t cond;
 } slots_restore_one_task_params;
+
+typedef struct _slots_split_restore_params {
+    RedisModuleCtx* ctx;
+    slot_mgrt_connet_meta* meta;
+    char** argv;
+    size_t* argvlen;
+    int start_pos;
+    int end_pos;
+    int result_code;
+} slots_split_restore_params;
 
 // declare defined extern var to out use
 extern slots_meta_info g_slots_meta_info;

@@ -705,7 +705,7 @@ void ShutdownCallback(RedisModuleCtx* ctx, RedisModuleEvent e, uint64_t sub,
     REDISMODULE_NOT_USED(data);
     REDISMODULE_NOT_USED(sub);
 
-    RedisModule_Log(ctx, "notic", "ShutdownCallback module-event-%s",
+    RedisModule_Log(ctx, "notice", "ShutdownCallback module-event-%s",
                     "shutdown");
     Slots_Free(ctx);
 }
@@ -859,7 +859,7 @@ RedisModule_OnLoad(RedisModuleCtx* ctx, RedisModuleString** argv, int argc) {
     CREATE_WRMCMD("slotsmgrttagslot", SlotsMGRTTagSlot_RedisCommand, 0, 0, 0);
     CREATE_WRMCMD("slotsrestore", SlotsRestore_RedisCommand, 0, 0, 0);
     CREATE_WRMCMD("slotsdel", SlotsDel_RedisCommand, 0, 0, 0);
-    CREATE_WRMCMD("slotstest", SlotsTest_RedisCommand, 0, 0, 0);
+    // CREATE_WRMCMD("slotstest", SlotsTest_RedisCommand, 0, 0, 0);
 
     return REDISMODULE_OK;
 }

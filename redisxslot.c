@@ -33,6 +33,7 @@ db_slot_info* db_slot_infos;
 
 // declare defined static var to inner use (private prototypes)
 static RedisModuleDict* slotsmgrt_cached_ctx_connects;
+pthread_rwlock_t slotsmgrt_cached_ctx_connects_rwlock;
 // declare static function to inner use (private prototypes)
 static const char* slots_tag(const char* s, int* plen);
 static RedisModuleString* takeAndRef(RedisModuleString* str);
@@ -87,7 +88,7 @@ void Slots_Init(RedisModuleCtx* ctx, uint32_t hash_slots_size, int databases,
     g_slots_meta_info.activerehashing = activerehashing;
     g_slots_meta_info.cronloops = 0;
     g_slots_meta_info.slots_mgrt_threads = num_threads;
-    g_slots_meta_info.slots_restore_threads = num_threads;
+    // g_slots_meta_info.slots_restore_threads = num_threads;
 
     db_slot_infos = RedisModule_Alloc(sizeof(db_slot_info) * databases);
     for (int j = 0; j < databases; j++) {
@@ -182,75 +183,90 @@ static time_t get_unixtime(void) {
     return (time_t)(RedisModule_Milliseconds() / 1e3);
 }
 
-static db_slot_mgrt_connect* SlotsMGRT_GetConnCtx(RedisModuleCtx* ctx,
-                                                  const sds host,
-                                                  const sds port,
-                                                  struct timeval timeout) {
-    time_t unixtime = get_unixtime();
-
+// getConnName
+// return {host}:{port}@{thread_id}
+static sds getConnName(const sds host, const sds port) {
     sds name = sdsempty();
     name = sdscatlen(name, host, sdslen(host));
     name = sdscatlen(name, ":", 1);
     name = sdscatlen(name, port, sdslen(port));
+    char buf[REDIS_LONGSTR_SIZE];
+    long long tid = (long long)gettid();
+    // long long tid = (long long)pthread_self();
+    m_ll2string(buf, sizeof(buf), tid);
+    name = sdscatlen(name, "@", 1);
+    name = sdscatlen(name, buf, strlen(buf));
+    return name;
+}
 
-    // db_slot_mgrt_connect* conn =
-    // m_dictFetchValue(slotsmgrt_cached_ctx_connects, name);
-    db_slot_mgrt_connect* conn = RedisModule_DictGetC(
-        slotsmgrt_cached_ctx_connects, (void*)name, sdslen(name), NULL);
+static db_slot_mgrt_connect* SlotsMGRT_GetConnCtx(RedisModuleCtx* ctx,
+                                                  slot_mgrt_connet_meta* meta) {
+    time_t unixtime = get_unixtime();
+    sds name = getConnName(meta->host, meta->port);
+
+    db_slot_mgrt_connect* conn = NULL;
+    pthread_rwlock_rdlock(&slotsmgrt_cached_ctx_connects_rwlock);
+    // conn = m_dictFetchValue(slotsmgrt_cached_ctx_connects, name);
+    conn = RedisModule_DictGetC(slotsmgrt_cached_ctx_connects, (void*)name,
+                                sdslen(name), NULL);
+    pthread_rwlock_unlock(&slotsmgrt_cached_ctx_connects_rwlock);
     if (conn != NULL) {
         sdsfree(name);
         conn->last_time = unixtime;
         return conn;
     }
 
-    redisContext* c = redisConnect(host, atoi(port));
+    redisContext* c = redisConnect(meta->host, atoi(meta->port));
     if (c->err) {
         char errLog[200];
-        sprintf(errLog, "Err: slotsmgrt connect to target %s:%s, error = '%s'",
-                host, port, c->errstr);
+        sprintf(errLog, "Err: slotsmgrt connect to target %s, error = '%s'",
+                name, c->errstr);
         RedisModule_Log(ctx, "warning", "%s", errLog);
         sdsfree(name);
         return NULL;
     }
-    redisSetTimeout(c, timeout);
+    redisSetTimeout(c, meta->timeout);
     RedisModule_Log(ctx, "notice",
-                    "slotsmgrt: connect to target %s:%s set timeout: %ld.%ld",
-                    host, port, timeout.tv_sec, timeout.tv_usec);
+                    "slotsmgrt: connect to target %s set timeout: %ld.%ld",
+                    name, meta->timeout.tv_sec, meta->timeout.tv_usec);
 
     conn = RedisModule_Alloc(sizeof(db_slot_mgrt_connect));
     conn->conn_ctx = c;
     conn->last_time = unixtime;
-    conn->db = -1;
+    conn->meta = meta;
 
+    pthread_rwlock_wrlock(&slotsmgrt_cached_ctx_connects_rwlock);
     // m_dictAdd(slotsmgrt_cached_ctx_connects, name, conn);
     RedisModule_DictSetC(slotsmgrt_cached_ctx_connects, (void*)name,
                          sdslen(name), conn);
+    pthread_rwlock_unlock(&slotsmgrt_cached_ctx_connects_rwlock);
+
     sdsfree(name);
     return conn;
 }
 
-static void SlotsMGRT_CloseConn(RedisModuleCtx* ctx, const sds host,
-                                const sds port) {
-    sds name = sdsempty();
-    name = sdscatlen(name, host, sdslen(host));
-    name = sdscatlen(name, ":", 1);
-    name = sdscatlen(name, port, sdslen(port));
+static void SlotsMGRT_CloseConn(RedisModuleCtx* ctx,
+                                slot_mgrt_connet_meta* meta) {
+    sds name = getConnName(meta->host, meta->port);
 
+    pthread_rwlock_rdlock(&slotsmgrt_cached_ctx_connects_rwlock);
     // db_slot_mgrt_connect* conn =
     // m_dictFetchValue(slotsmgrt_cached_ctx_connects, name);
     db_slot_mgrt_connect* conn = RedisModule_DictGetC(
         slotsmgrt_cached_ctx_connects, (void*)name, sdslen(name), NULL);
+    pthread_rwlock_unlock(&slotsmgrt_cached_ctx_connects_rwlock);
     if (conn == NULL) {
-        RedisModule_Log(ctx, "warning", "slotsmgrt: close target %s:%s again",
-                        host, port);
+        RedisModule_Log(ctx, "warning", "slotsmgrt: close target %s again",
+                        name);
         sdsfree(name);
         return;
     }
-    RedisModule_Log(ctx, "notice", "slotsmgrt: close target %s:%s ok", host,
-                    port);
+    RedisModule_Log(ctx, "notice", "slotsmgrt: close target %s ok", name);
+    pthread_rwlock_wrlock(&slotsmgrt_cached_ctx_connects_rwlock);
     // m_dictDelete(slotsmgrt_cached_ctx_connects, name);
     RedisModule_DictDelC(slotsmgrt_cached_ctx_connects, (void*)name,
                          sdslen(name), NULL);
+    pthread_rwlock_unlock(&slotsmgrt_cached_ctx_connects_rwlock);
     redisFree(conn->conn_ctx);
     RedisModule_Free(conn);
     conn = NULL;
@@ -284,9 +300,11 @@ void SlotsMGRT_CloseTimedoutConns(RedisModuleCtx* ctx) {
                 "slotsmgrt: timeout target %s, lasttime = %ld, now = %ld",
                 (sds)k, conn->last_time, unixtime);
 
+            pthread_rwlock_wrlock(&slotsmgrt_cached_ctx_connects_rwlock);
             // m_dictDelete(slotsmgrt_cached_ctx_connects, k);
             RedisModule_DictDelC(slotsmgrt_cached_ctx_connects, k,
                                  strlen((sds)k), NULL);
+            pthread_rwlock_unlock(&slotsmgrt_cached_ctx_connects_rwlock);
 
             redisFree(conn->conn_ctx);
             RedisModule_Free(conn);
@@ -351,10 +369,117 @@ static int doSplitRestoreCommand(RedisModuleCtx* ctx,
     return obj_cn;
 }
 
+static void doSplitRestoreCmdTask(void* arg) {
+    slots_split_restore_params* params = (slots_split_restore_params*)arg;
+    db_slot_mgrt_connect* conn
+        = SlotsMGRT_GetConnCtx(params->ctx, params->meta);
+    if (conn == NULL) {
+        params->result_code = SLOTS_MGRT_ERR;
+        return;
+    }
+    // todo auth
+
+    redisReply* rr;
+    rr = redisCommand(conn->conn_ctx, "SELECT %d", params->meta->db);
+    if (rr == NULL || rr->type == REDIS_REPLY_ERROR) {
+        if (rr != NULL) {
+            freeReplyObject(rr);
+        }
+        params->result_code = SLOTS_MGRT_ERR;
+        return;
+    }
+    freeReplyObject(rr);
+
+    params->result_code = doSplitRestoreCommand(
+        params->ctx, conn, params->argv, params->argvlen, params->start_pos,
+        params->end_pos);
+
+    conn->last_time = get_unixtime();
+    SlotsMGRT_CloseConn(params->ctx, params->meta);
+}
+
+static int BatchSendWithThreadPool_SlotsRestore(RedisModuleCtx* ctx,
+                                                slot_mgrt_connet_meta* meta,
+                                                rdb_dump_obj* objs[], int n) {
+    UNUSED(ctx);
+    threadpool thpool = thpool_init(g_slots_meta_info.slots_mgrt_threads);
+    slots_split_restore_params* params
+        = RedisModule_Alloc(sizeof(slots_split_restore_params) * n);
+    int params_cn = 0;
+
+    // char* argv[3 * n];
+    char** argv = RedisModule_Alloc(sizeof(char*) * 3 * n);
+    // size_t argvlen[3 * n];
+    size_t* argvlen = RedisModule_Alloc(sizeof(size_t) * 3 * n);
+    char buf[REDIS_LONGSTR_SIZE];
+    size_t cmd_size = 0;
+    int start_pos = 0;
+    for (int i = 0; i < n; i++) {
+        // split cmd to send (todo bigkey)
+        if (cmd_size > REDIS_MGRT_CMD_PARAMS_SIZE) {
+            params[params_cn].ctx = RedisModule_GetThreadSafeContext(NULL);
+            params[params_cn].meta = meta;
+            params[params_cn].argv = argv;
+            params[params_cn].argvlen = argvlen;
+            params[params_cn].start_pos = start_pos;
+            params[params_cn].end_pos = i;
+            params[params_cn].result_code = 0;
+            thpool_add_work(thpool, doSplitRestoreCmdTask,
+                            (void*)&params[params_cn]);
+            params_cn++;
+
+            cmd_size = 0;
+            start_pos = i;
+        }
+
+        size_t ksz, vsz;
+        argv[i * 3 + 0] = (char*)RedisModule_StringPtrLen(objs[i]->key, &ksz);
+        argvlen[i * 3 + 0] = ksz;
+        cmd_size += argvlen[i * 3 + 0];
+
+        time_t ttlms = objs[i]->ttlms > 0 ? objs[i]->ttlms : 0;
+        argvlen[i * 3 + 1] = m_ll2string(buf, sizeof(buf), (long long)ttlms);
+        argv[i * 3 + 1] = RedisModule_Strdup(buf);
+        cmd_size += argvlen[i * 3 + 1];
+
+        argv[i * 3 + 2] = (char*)RedisModule_StringPtrLen(objs[i]->val, &vsz);
+        argvlen[i * 3 + 2] = vsz;
+        cmd_size += argvlen[i * 3 + 2];
+    }
+
+    params[params_cn].ctx = RedisModule_GetThreadSafeContext(NULL);
+    params[params_cn].meta = meta;
+    params[params_cn].argv = argv;
+    params[params_cn].argvlen = argvlen;
+    params[params_cn].start_pos = start_pos;
+    params[params_cn].end_pos = n;
+    params[params_cn].result_code = 0;
+    thpool_add_work(thpool, doSplitRestoreCmdTask, (void*)&params[params_cn]);
+    params_cn++;
+
+    thpool_wait(thpool);
+    thpool_destroy(thpool);
+
+    for (int i = 0; i < params_cn; i++) {
+        RedisModule_FreeThreadSafeContext(params[i].ctx);
+    }
+
+    for (int i = 0; i < params_cn; i++) {
+        if (params[i].result_code == SLOTS_MGRT_ERR) {
+            freeHiRedisSlotsRestoreArgs(argv, argvlen, n);
+            RedisModule_Free(params);
+            return SLOTS_MGRT_ERR;
+        }
+    }
+
+    freeHiRedisSlotsRestoreArgs(argv, argvlen, n);
+    RedisModule_Free(params);
+    return n;
+}
+
 static int BatchSend_SlotsRestore(RedisModuleCtx* ctx,
                                   db_slot_mgrt_connect* conn,
                                   rdb_dump_obj* objs[], int n) {
-    UNUSED(ctx);
     // char* argv[3 * n];
     char** argv = RedisModule_Alloc(sizeof(char*) * 3 * n);
     // size_t argvlen[3 * n];
@@ -439,33 +564,43 @@ static int Pipeline_Restore(RedisModuleCtx* ctx, db_slot_mgrt_connect* conn,
 //   >=0 - # of success migration (0 or n)
 static int MGRT(RedisModuleCtx* ctx, const sds host, const sds port,
                 time_t timeoutMS, rdb_dump_obj* objs[], int n, sds mgrtType) {
+    int db = RedisModule_GetSelectedDb(ctx);
     struct timeval timeout
         = {.tv_sec = timeoutMS / 1000, .tv_usec = (timeoutMS % 1000) * 1000};
-    db_slot_mgrt_connect* conn = SlotsMGRT_GetConnCtx(ctx, host, port, timeout);
+    slot_mgrt_connet_meta meta
+        = {.db = db, .host = host, .port = port, .timeout = timeout};
+
+    // if use thread pool, each worker thread new one connect to mgrt
+    if (g_slots_meta_info.slots_mgrt_threads > 0) {
+        int ret = BatchSendWithThreadPool_SlotsRestore(ctx, &meta, objs, n);
+        return ret;
+    }
+
+    db_slot_mgrt_connect* conn = SlotsMGRT_GetConnCtx(ctx, &meta);
     if (conn == NULL) {
         return SLOTS_MGRT_ERR;
     }
     // todo auth
 
     redisReply* rr;
-    int db = RedisModule_GetSelectedDb(ctx);
     rr = redisCommand(conn->conn_ctx, "SELECT %d", db);
     if (rr == NULL || rr->type == REDIS_REPLY_ERROR) {
         if (rr != NULL) {
             freeReplyObject(rr);
         }
+        SlotsMGRT_CloseConn(ctx, &meta);
         return SLOTS_MGRT_ERR;
     }
     freeReplyObject(rr);
 
     if (mgrtType != NULL && strcasecmp(mgrtType, "withrestore") == 0) {
         int ret = Pipeline_Restore(ctx, conn, objs, n);
-        SlotsMGRT_CloseConn(ctx, host, port);
+        SlotsMGRT_CloseConn(ctx, &meta);
         return ret;
     }
 
     int ret = BatchSend_SlotsRestore(ctx, conn, objs, n);
-    SlotsMGRT_CloseConn(ctx, host, port);
+    SlotsMGRT_CloseConn(ctx, &meta);
     return ret;
 }
 
@@ -559,14 +694,20 @@ void FreeDumpObjs(rdb_dump_obj** objs, int n) {
     }
 }
 
+static double get_us(struct timeval t) {
+    return (t.tv_sec * 1000000 + t.tv_usec);
+}
+
 static int migrateKeys(RedisModuleCtx* ctx, const sds host, const sds port,
                        time_t timeoutMS, RedisModuleString* keys[], int n,
                        const sds mgrtType) {
     if (n <= 0) {
         return 0;
     }
+    struct timeval start_time, stop_time;
 
     // get rdb dump objs
+    gettimeofday(&start_time, NULL);
     rdb_dump_obj** objs = RedisModule_Alloc(sizeof(rdb_dump_obj*) * n);
     int j = 0;
     int ret = getRdbDumpObjs(ctx, keys, n, objs, &j);
@@ -578,8 +719,12 @@ static int migrateKeys(RedisModuleCtx* ctx, const sds host, const sds port,
         FreeDumpObjs(objs, j);
         return SLOTS_MGRT_ERR;
     }
+    gettimeofday(&stop_time, NULL);
+    RedisModule_Log(ctx, "notice", "%d objs dump cost %f ms", n,
+                    (get_us(stop_time) - get_us(start_time)) / 1000);
 
     // migrate
+    gettimeofday(&start_time, NULL);
     ret = MGRT(ctx, host, port, timeoutMS, objs, j, mgrtType);
     if (ret == SLOTS_MGRT_ERR) {
         FreeDumpObjs(objs, j);
@@ -590,12 +735,19 @@ static int migrateKeys(RedisModuleCtx* ctx, const sds host, const sds port,
         return ret;
     }
     FreeDumpObjs(objs, j);
+    gettimeofday(&stop_time, NULL);
+    RedisModule_Log(ctx, "notice", "%d objs mgrt cost %f ms", ret,
+                    (get_us(stop_time) - get_us(start_time)) / 1000);
 
     // del
+    gettimeofday(&start_time, NULL);
     ret = delKeys(ctx, keys, n);
     if (ret == SLOTS_MGRT_ERR) {
         return SLOTS_MGRT_ERR;
     }
+    gettimeofday(&stop_time, NULL);
+    RedisModule_Log(ctx, "notice", "%d keys del cost %f ms", ret,
+                    (get_us(stop_time) - get_us(start_time)) / 1000);
 
     return ret;
 }

@@ -223,6 +223,10 @@ int SlotsMGRTSlot_RedisCommand(RedisModuleCtx* ctx, RedisModuleString** argv,
         RedisModule_ReplyWithError(ctx, REDISXSLOT_ERRORMSG_SYNTAX);
         return REDISMODULE_ERR;
     }
+    if (slot >= g_slots_meta_info.hash_slots_size) {
+        RedisModule_ReplyWithError(ctx, REDISXSLOT_ERRORMSG_SYNTAX);
+        return REDISMODULE_ERR;
+    }
 
     const char* mgrtType = NULL;
     if (argc == 6) {
@@ -299,6 +303,11 @@ int SlotsMGRTTagSlot_RedisCommand(RedisModuleCtx* ctx, RedisModuleString** argv,
         RedisModule_ReplyWithError(ctx, REDISXSLOT_ERRORMSG_SYNTAX);
         return REDISMODULE_ERR;
     }
+    if (slot >= g_slots_meta_info.hash_slots_size) {
+        RedisModule_ReplyWithError(ctx, REDISXSLOT_ERRORMSG_SYNTAX);
+        return REDISMODULE_ERR;
+    }
+
     const char* mgrtType = NULL;
     if (argc == 6) {
         mgrtType = RedisModule_StringPtrLen(argv[5], NULL);
@@ -800,6 +809,68 @@ int NotifyGenericCallback(RedisModuleCtx* ctx, int type, const char* event,
     return REDISMODULE_OK;
 }
 
+void* HelloKeys_ThreadMain(void* arg) {
+    RedisModuleBlockedClient* bc = arg;
+    RedisModuleCtx* ctx = RedisModule_GetThreadSafeContext(bc);
+    long long cursor = 0;
+    size_t replylen = 0;
+
+    RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
+    do {
+        RedisModule_ThreadSafeContextLock(ctx);
+        RedisModuleCallReply* reply
+            = RedisModule_Call(ctx, "SCAN", "l", (long long)cursor);
+        RedisModule_ThreadSafeContextUnlock(ctx);
+
+        RedisModuleCallReply* cr_cursor
+            = RedisModule_CallReplyArrayElement(reply, 0);
+        RedisModuleCallReply* cr_keys
+            = RedisModule_CallReplyArrayElement(reply, 1);
+
+        RedisModuleString* s = RedisModule_CreateStringFromCallReply(cr_cursor);
+        RedisModule_StringToLongLong(s, &cursor);
+        RedisModule_FreeString(ctx, s);
+
+        size_t items = RedisModule_CallReplyLength(cr_keys);
+        for (size_t j = 0; j < items; j++) {
+            RedisModuleCallReply* ele
+                = RedisModule_CallReplyArrayElement(cr_keys, j);
+            RedisModule_ReplyWithCallReply(ctx, ele);
+            replylen++;
+        }
+        RedisModule_FreeCallReply(reply);
+    } while (cursor != 0);
+    RedisModule_ReplySetArrayLength(ctx, replylen);
+
+    RedisModule_FreeThreadSafeContext(ctx);
+    RedisModule_UnblockClient(bc, NULL);
+    return NULL;
+}
+
+int HelloKeys_RedisCommand(RedisModuleCtx* ctx, RedisModuleString** argv,
+                           int argc) {
+    REDISMODULE_NOT_USED(argv);
+    if (argc != 1)
+        return RedisModule_WrongArity(ctx);
+
+    pthread_t tid;
+
+    /* Note that when blocking the client we do not set any callback: no
+     * timeout is possible since we passed '0', nor we need a reply callback
+     * because we'll use the thread safe context to accumulate a reply. */
+    RedisModuleBlockedClient* bc
+        = RedisModule_BlockClient(ctx, NULL, NULL, NULL, 0);
+
+    /* Now that we setup a blocking client, we need to pass the control
+     * to the thread. However we need to pass arguments to the thread:
+     * the reference to the blocked client handle. */
+    if (pthread_create(&tid, NULL, HelloKeys_ThreadMain, bc) != 0) {
+        RedisModule_AbortBlock(bc);
+        return RedisModule_ReplyWithError(ctx, "-ERR Can't start thread");
+    }
+    return REDISMODULE_OK;
+}
+
 /* This function must be present on each Redis module. It is used in
  * order to register the commands into the Redis server.
  *  __attribute__((visibility("default"))) for the same func name with redis
@@ -848,10 +919,10 @@ RedisModule_OnLoad(RedisModuleCtx* ctx, RedisModuleString** argv, int argc) {
     RedisModule_SubscribeToKeyspaceEvents(
         ctx, REDISMODULE_NOTIFY_GENERIC | REDISMODULE_NOTIFY_EXPIRED,
         NotifyGenericCallback);
-
     CREATE_ROMCMD("slotshashkey", SlotsHashKey_RedisCommand, 0, 0, 0);
     CREATE_ROMCMD("slotsinfo", SlotsInfo_RedisCommand, 0, 0, 0);
     CREATE_ROMCMD("slotsscan", SlotsScan_RedisCommand, 0, 0, 0);
+    CREATE_ROMCMD("hello.keys", HelloKeys_RedisCommand, 0, 0, 0);
 
     CREATE_WRMCMD("slotsmgrtone", SlotsMGRTOne_RedisCommand, 0, 0, 0);
     CREATE_WRMCMD("slotsmgrtslot", SlotsMGRTSlot_RedisCommand, 0, 0, 0);

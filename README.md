@@ -23,6 +23,7 @@
     default use slotsrestore batch send key, ttlms, dump rdb val ... ( restore with replace)
     if migrate cmd use withretore, pipeline buff to send key ttlms (restore with replace)
 7. `SLOTSRESTORE` if num_threads>0, init thread pool size to do restore one key job. loadmodule like this `./redis/src/redis-server --port 6379 --loadmodule ./redisxslot.so 1024 4 --dbfilename dump.6379.rdb`
+8. about migrate cmd, create a thread async block todo per client, don't block other cmd 
 # Build & LoadModule
 ```shell
 git clone https://github.com/weedge/redisxslot.git
@@ -33,7 +34,7 @@ cd redis && make && cd ..
 ./redis/src/redis-server --port 6379 --loadmodule ./redisxslot/redisxslot.so --dbfilename dump.6379.rdb
 ```
 Tips: 
-1. if want spec redis version(>=6.0.0) run `make RM_INCLUDE_DIR=~/project/c/redisxslot/../redis/src`,default use latest version(redismodule.h)
+1. if want spec redis version(>=6.0.0) run `make RM_INCLUDE_DIR={redis_path}/src`,default use latest version(redismodule.h)
 2. if use vscode debug, u can reference [docs/launch.json](./docs/launch.json)
 # Release
 use conanfile py script todo ci with makefile release.

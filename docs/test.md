@@ -15,7 +15,7 @@ redis/src/redis-benchmark -h 127.0.0.1 -p 6379 -n 10000000 -r 1000000 zadd myzse
 ```
 # MGRT
 * env: vm ubuntu 6.2.0-27-generic 4 cores, Intel(R) Core(TM) i5-1038NG7 CPU @ 2.00GHz
-* init slot 1024, activingrehash dict, `slotsrestore` cmd params size 1M
+* init slot 1024, activingrehash dict, `slotsrestore` cmd params size 1M, local mgrt(no driver i/o).
 ```shell
 # mgrt the same hash tag 1m keys (tag: {stringtag} slot 835)
 SLOTSMGRTTAGSLOT 127.0.0.1 6372 30000 835

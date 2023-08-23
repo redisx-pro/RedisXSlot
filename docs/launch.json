@@ -137,5 +137,22 @@
             "internalConsoleOptions": "openOnSessionStart",
             "MIMode": "gdb"
         },
+        {
+            "name": "helloblock",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/../redis/src/redis-server",
+            "args": [
+                //"./redis.conf",
+                "--loadmodule  ${workspaceFolder}/../redis/src/modules/helloblock.so",
+                "--dbfilename dump.helloblock.rdb",
+            ],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}",
+            "environment": [],
+            "externalConsole": false,
+            "internalConsoleOptions": "openOnSessionStart",
+            "MIMode": "gdb"
+        },
     ]
 }

@@ -65,9 +65,10 @@
 #define DEFAULT_HASH_SLOTS_SIZE (DEFAULT_HASH_SLOTS_MASK + 1)
 #define MAX_HASH_SLOTS_MASK 0x0000ffff
 #define MAX_HASH_SLOTS_SIZE (MAX_HASH_SLOTS_MASK + 1)
-#define MGRT_ONE_KEY_TIMEOUT 30                 // 30s
+#define MGRT_BATCH_KEY_TIMEOUT 30               // 30s
 #define REDIS_LONGSTR_SIZE 42                   // Bytes needed for long -> str
 #define REDIS_MGRT_CMD_PARAMS_SIZE 1024 * 1024  // send redis cmd params size
+#define SLOTS_MGRT_NOTHING 0
 #define SLOTS_MGRT_ERR -1
 #define MAX_NUM_THREADS 128
 #define REDISXSLOT_APIVER_1 1
@@ -121,7 +122,8 @@ typedef struct _slots_meta_info {
     int activerehashing;
     // cronloop event callback cn
     int cronloops;
-    // thread pool size (mgrt restore)
+    // thread pool size (dump mgrt restore)
+    int slots_dump_threads;
     int slots_mgrt_threads;
     int slots_restore_threads;
 } slots_meta_info;
@@ -162,7 +164,6 @@ typedef struct _rdb_obj rdb_dump_obj;
 typedef struct _rdb_obj rdb_parse_obj;
 
 typedef struct _slots_restore_one_task_params {
-    RedisModuleCtx* ctx;
     rdb_dump_obj* obj;
     int result_code;
     // slot keys mutex lock
@@ -171,7 +172,6 @@ typedef struct _slots_restore_one_task_params {
 } slots_restore_one_task_params;
 
 typedef struct _slots_split_restore_params {
-    RedisModuleCtx* ctx;
     slot_mgrt_connet_meta* meta;
     char** argv;
     size_t* argvlen;
@@ -179,6 +179,13 @@ typedef struct _slots_split_restore_params {
     int end_pos;
     int result_code;
 } slots_split_restore_params;
+
+typedef struct _dump_obj_params {
+    RedisModuleString* key;
+    // return a new obj
+    rdb_dump_obj** obj;
+    int result_code;
+} dump_obj_params;
 
 // declare defined extern var to out use
 extern slots_meta_info g_slots_meta_info;

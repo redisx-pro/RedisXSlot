@@ -4,6 +4,7 @@
 
 CC=gcc
 # redis version >= 6.0.0
+# or use RedisModule_GetServerVersion but version >= 6.0.9
 REDIS_VERSION ?= 60000
 
 # redisxslot version

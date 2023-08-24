@@ -36,6 +36,9 @@
 // 2. sub CronLoop server event hook to resize/rehash dict (db slot keys)
 // 3. sub loaded notify event hook for db slot key meta info load from rdb
 
+static int slotsRestoreCmd(RedisModuleCtx* ctx, RedisModuleString** argv,
+                           int argc);
+
 /* Check if Redis version is compatible with the adapter. */
 static inline int redisModuleCompatibilityCheckV6(void) {
     if (!RedisModule_HoldString || !RedisModule_GetKeyspaceNotificationFlagsAll
@@ -45,58 +48,74 @@ static inline int redisModuleCompatibilityCheckV6(void) {
     return REDIS_OK;
 }
 
-int SlotsTest_RedisCommand(RedisModuleCtx* ctx, RedisModuleString** argv,
-                           int argc) {
-    UNUSED(argv);
-    UNUSED(argc);
-    RedisModule_AutoMemory(ctx);
-    RedisModuleCallReply* reply;
+/*------------------------ async block --------------------------------*/
 
-    RedisModule_Call(ctx, "SET", "cc", "k2", "v22");
-    reply = RedisModule_Call(ctx, "DUMP", "c", "k2");
-    size_t sz;
-    const char* str = RedisModule_CallReplyStringPtr(reply, &sz);
+void* SlotsRestoreAsyncBlock_ThreadMain(void* arg) {
+    bg_call_params* params = (bg_call_params*)arg;
+    RedisModuleCtx* ctx = RedisModule_GetThreadSafeContext(params->bc);
+    int* r = RedisModule_Alloc(sizeof(int));
+    *r = slotsRestoreCmd(ctx, params->argv, params->argc);
+    RedisModule_UnblockClient(params->bc, r);
+    RedisModule_Free(arg);
+    return NULL;
+}
 
-    RedisModuleString* strr = RedisModule_CreateStringFromCallReply(reply);
-    reply = RedisModule_Call(ctx, "RESTORE", "ccs", "k4", "0", strr);
-    /*
-    int type = RedisModule_CallReplyType(reply);
-    do {
-        size_t sz;
-        const char* str = RedisModule_CallReplyStringPtr(reply, &sz);
-        printf("restore reply %p str %s len %ld type %d \n", reply, str, sz,
-               type);
-    } while (0);
-    */
+int SlotsRestoreAsyncBlock_Reply(RedisModuleCtx* ctx, RedisModuleString** argv,
+                                 int argc) {
+    REDISMODULE_NOT_USED(argv);
+    REDISMODULE_NOT_USED(argc);
+    int* res = RedisModule_GetBlockedClientPrivateData(ctx);
+    return RedisModule_ReplyWithLongLong(ctx, *res);
+}
 
-    redisContext* c = redisConnect("127.0.0.1", 6372);
-    if (c->err) {
-        printf("redis connect Error-->: %s\n", c->errstr);
-        return REDISMODULE_ERR;
+int SlotsRestoreAsyncBlock_Timeout(RedisModuleCtx* ctx,
+                                   RedisModuleString** argv, int argc) {
+    REDISMODULE_NOT_USED(argv);
+    REDISMODULE_NOT_USED(argc);
+    return RedisModule_ReplyWithSimpleString(ctx, "Request timedout");
+}
+
+void SlotsRestoreAsyncBlock_FreeData(RedisModuleCtx* ctx, void* privdata) {
+    REDISMODULE_NOT_USED(ctx);
+    RedisModule_Free(privdata);
+}
+void SlotsRestoreAsyncBlock_Disconnected(RedisModuleCtx* ctx,
+                                         RedisModuleBlockedClient* bc) {
+    RedisModule_Log(ctx, "warning",
+                    "SlotsRestore Blocked client %p disconnected!", (void*)bc);
+
+    /* Here you should cleanup your state / threads, and if possible
+     * call RedisModule_UnblockClient(), or notify the thread that will
+     * call the function ASAP. */
+    RedisModule_ReplyWithError(ctx, REDISXSLOT_ERRORMSG_CLI_DISCONN);
+}
+
+int SlotsRestoreAsyncBlock_RedisCommand(RedisModuleCtx* ctx,
+                                        RedisModuleString** argv, int argc) {
+    /* Make sure to async block a client when do mgrt/slotsrestore cmd :) */
+
+    if (argc < 4 || (argc - 1) % 3 != 0)
+        return RedisModule_WrongArity(ctx);
+
+    RedisModuleBlockedClient* bc = RedisModule_BlockClient(
+        ctx, SlotsRestoreAsyncBlock_Reply, SlotsRestoreAsyncBlock_Timeout,
+        SlotsRestoreAsyncBlock_FreeData, 60000);
+    RedisModule_SetDisconnectCallback(bc, SlotsRestoreAsyncBlock_Disconnected);
+
+    /* Make a copy of the arguments and pass them to the thread. */
+    bg_call_params* arg = RedisModule_Alloc(sizeof(bg_call_params));
+    arg->bc = bc;
+    arg->argc = argc;
+    arg->argv = RedisModule_Alloc(sizeof(RedisModuleString*) * argc);
+    for (int i = 0; i < argc; i++)
+        arg->argv[i] = takeAndRef(ctx, argv[i]);
+
+    pthread_t tid;
+    if (pthread_create(&tid, NULL, SlotsRestoreAsyncBlock_ThreadMain, arg)
+        != 0) {
+        RedisModule_AbortBlock(bc);
+        return RedisModule_ReplyWithError(ctx, "-ERR Can't start thread");
     }
-    redisSetTimeout(c, (struct timeval){.tv_sec = 3, .tv_usec = 0});
-
-    redisReply* rr = redisCommand(c, "RESTORE k2 0 %b", str, sz);
-    if (rr == NULL || rr->type == REDIS_REPLY_ERROR) {
-        if (rr != NULL)
-            RedisModule_ReplyWithError(ctx, rr->str);
-        return REDISMODULE_ERR;
-    }
-    freeReplyObject(rr);
-    rr = redisCommand(c, "GET k2");
-    if (rr == NULL || rr->type == REDIS_REPLY_ERROR) {
-        if (rr != NULL)
-            RedisModule_ReplyWithError(ctx, rr->str);
-        return REDISMODULE_ERR;
-    }
-    printf("%s\n", rr->str);
-    freeReplyObject(rr);
-    redisFree(c);
-
-    // reply = RedisModule_Call(ctx, "slotshashkey", "c", "k4");
-    RedisModule_ReplyWithCallReply(ctx, reply);
-
-    RedisModule_FreeCallReply(reply);
     return REDISMODULE_OK;
 }
 
@@ -365,17 +384,8 @@ int SlotsDel_RedisCommand(RedisModuleCtx* ctx, RedisModuleString** argv,
     return REDISMODULE_OK;
 }
 
-/* *
- * slotsrestore key ttl val [key ttl val ...]
- * */
-int SlotsRestore_RedisCommand(RedisModuleCtx* ctx, RedisModuleString** argv,
-                              int argc) {
-    /* Use automatic memory management. */
-    RedisModule_AutoMemory(ctx);
-
-    if (argc < 4 || (argc - 1) % 3 != 0)
-        return RedisModule_WrongArity(ctx);
-
+static int slotsRestoreCmd(RedisModuleCtx* ctx, RedisModuleString** argv,
+                           int argc) {
     int n = (argc - 1) / 3;
     int j = 0;
     rdb_dump_obj** objs = RedisModule_Alloc(sizeof(rdb_dump_obj*) * n);
@@ -386,7 +396,6 @@ int SlotsRestore_RedisCommand(RedisModuleCtx* ctx, RedisModuleString** argv,
         const char* str_ttlms
             = RedisModule_StringPtrLen(argv[i * 3 + 2], &ttllen);
         if (!m_string2ll(str_ttlms, ttllen, &ttlms)) {
-            RedisModule_ReplyWithError(ctx, REDISXSLOT_ERRORMSG_SYNTAX);
             FreeDumpObjs(objs, j);
             return REDISMODULE_ERR;
         }
@@ -400,13 +409,36 @@ int SlotsRestore_RedisCommand(RedisModuleCtx* ctx, RedisModuleString** argv,
 
     int ret = SlotsMGRT_Restore(ctx, objs, j);
     if (ret == SLOTS_MGRT_ERR) {
-        RedisModule_ReplyWithError(ctx, REDISXSLOT_ERRORMSG_MGRT);
         FreeDumpObjs(objs, j);
         return REDISMODULE_ERR;
     }
 
-    RedisModule_ReplyWithLongLong(ctx, ret);
     FreeDumpObjs(objs, j);
+    return ret;
+}
+
+/* *
+ * slotsrestore key ttl val [key ttl val ...]
+ * */
+int SlotsRestore_RedisCommand(RedisModuleCtx* ctx, RedisModuleString** argv,
+                              int argc) {
+    if (g_slots_meta_info.async) {
+        return SlotsRestoreAsyncBlock_RedisCommand(ctx, argv, argc);
+    }
+
+    /* Use automatic memory management. */
+    RedisModule_AutoMemory(ctx);
+
+    if (argc < 4 || (argc - 1) % 3 != 0)
+        return RedisModule_WrongArity(ctx);
+
+    int ret = slotsRestoreCmd(ctx, argv, argc);
+    if (ret == REDISMODULE_ERR) {
+        RedisModule_ReplyWithError(ctx, REDISXSLOT_ERRORMSG_SYNTAX);
+        return REDISMODULE_ERR;
+    }
+
+    RedisModule_ReplyWithLongLong(ctx, ret);
     return REDISMODULE_OK;
 }
 
@@ -542,7 +574,17 @@ static int redisModule_SlotsInit(RedisModuleCtx* ctx, RedisModuleString** argv,
         return REDISMODULE_ERR;
     }
 
-    Slots_Init(ctx, hash_slots_size, databases, num_threads, activerehashing);
+    // async block mgrt
+    int async = 0;
+    if (argc >= 3) {
+        const char* s = RedisModule_StringPtrLen(argv[2], NULL);
+        if (strcasecmp(s, "async") == 0) {
+            async = 1;
+        }
+    }
+
+    Slots_Init(ctx, hash_slots_size, databases, num_threads, activerehashing,
+               async);
     return REDISMODULE_OK;
 }
 
@@ -588,8 +630,8 @@ void dbSlotCron(RedisModuleCtx* ctx) {
     /* Perform hash tables rehashing if needed, but only if there are no
      * other processes saving the DB on disk. Otherwise rehashing is bad
      * as will cause a lot of copy-on-write of memory pages. */
-    // todo  need check have child pid (disk io)
-    // pr: https://github.com/redis/redis/pull/12482
+    // need check have child pid (disk io) use
+    // pr: https://github.com/redis/redis/pull/12482 closed
 
     /* We use global counters so if we stop the computation at a given
      * DB we'll be able to start from the successive in the next
@@ -616,10 +658,13 @@ void dbSlotCron(RedisModuleCtx* ctx) {
         resize_db %= g_slots_meta_info.databases;
     }  // end for
 
-    // ReHash just try do one db slot hash table rehash
-    if (!g_slots_meta_info.activerehashing) {
+    int flag = RedisModule_GetContextFlags(ctx);
+    if (!g_slots_meta_info.activerehashing
+        || (flag & REDISMODULE_CTX_FLAGS_ACTIVE_CHILD)) {
         return;
     }
+
+    // ReHash just try do one db slot hash table rehash
     for (int db = 0; db < g_slots_meta_info.databases; db++) {
         for (int slot = 0; slot < (int)g_slots_meta_info.hash_slots_size;
              slot++) {
@@ -809,68 +854,6 @@ int NotifyGenericCallback(RedisModuleCtx* ctx, int type, const char* event,
     return REDISMODULE_OK;
 }
 
-void* HelloKeys_ThreadMain(void* arg) {
-    RedisModuleBlockedClient* bc = arg;
-    RedisModuleCtx* ctx = RedisModule_GetThreadSafeContext(bc);
-    long long cursor = 0;
-    size_t replylen = 0;
-
-    RedisModule_ReplyWithArray(ctx, REDISMODULE_POSTPONED_ARRAY_LEN);
-    do {
-        RedisModule_ThreadSafeContextLock(ctx);
-        RedisModuleCallReply* reply
-            = RedisModule_Call(ctx, "SCAN", "l", (long long)cursor);
-        RedisModule_ThreadSafeContextUnlock(ctx);
-
-        RedisModuleCallReply* cr_cursor
-            = RedisModule_CallReplyArrayElement(reply, 0);
-        RedisModuleCallReply* cr_keys
-            = RedisModule_CallReplyArrayElement(reply, 1);
-
-        RedisModuleString* s = RedisModule_CreateStringFromCallReply(cr_cursor);
-        RedisModule_StringToLongLong(s, &cursor);
-        RedisModule_FreeString(ctx, s);
-
-        size_t items = RedisModule_CallReplyLength(cr_keys);
-        for (size_t j = 0; j < items; j++) {
-            RedisModuleCallReply* ele
-                = RedisModule_CallReplyArrayElement(cr_keys, j);
-            RedisModule_ReplyWithCallReply(ctx, ele);
-            replylen++;
-        }
-        RedisModule_FreeCallReply(reply);
-    } while (cursor != 0);
-    RedisModule_ReplySetArrayLength(ctx, replylen);
-
-    RedisModule_FreeThreadSafeContext(ctx);
-    RedisModule_UnblockClient(bc, NULL);
-    return NULL;
-}
-
-int HelloKeys_RedisCommand(RedisModuleCtx* ctx, RedisModuleString** argv,
-                           int argc) {
-    REDISMODULE_NOT_USED(argv);
-    if (argc != 1)
-        return RedisModule_WrongArity(ctx);
-
-    pthread_t tid;
-
-    /* Note that when blocking the client we do not set any callback: no
-     * timeout is possible since we passed '0', nor we need a reply callback
-     * because we'll use the thread safe context to accumulate a reply. */
-    RedisModuleBlockedClient* bc
-        = RedisModule_BlockClient(ctx, NULL, NULL, NULL, 0);
-
-    /* Now that we setup a blocking client, we need to pass the control
-     * to the thread. However we need to pass arguments to the thread:
-     * the reference to the blocked client handle. */
-    if (pthread_create(&tid, NULL, HelloKeys_ThreadMain, bc) != 0) {
-        RedisModule_AbortBlock(bc);
-        return RedisModule_ReplyWithError(ctx, "-ERR Can't start thread");
-    }
-    return REDISMODULE_OK;
-}
-
 /* This function must be present on each Redis module. It is used in
  * order to register the commands into the Redis server.
  *  __attribute__((visibility("default"))) for the same func name with redis
@@ -915,14 +898,13 @@ RedisModule_OnLoad(RedisModuleCtx* ctx, RedisModuleString** argv, int argc) {
             | REDISMODULE_NOTIFY_STRING | REDISMODULE_NOTIFY_LIST
             | REDISMODULE_NOTIFY_ZSET | REDISMODULE_NOTIFY_LOADED,
         NotifyTypeChangeCallback);
-
     RedisModule_SubscribeToKeyspaceEvents(
         ctx, REDISMODULE_NOTIFY_GENERIC | REDISMODULE_NOTIFY_EXPIRED,
         NotifyGenericCallback);
+
     CREATE_ROMCMD("slotshashkey", SlotsHashKey_RedisCommand, 0, 0, 0);
     CREATE_ROMCMD("slotsinfo", SlotsInfo_RedisCommand, 0, 0, 0);
     CREATE_ROMCMD("slotsscan", SlotsScan_RedisCommand, 0, 0, 0);
-    CREATE_ROMCMD("hello.keys", HelloKeys_RedisCommand, 0, 0, 0);
 
     CREATE_WRMCMD("slotsmgrtone", SlotsMGRTOne_RedisCommand, 0, 0, 0);
     CREATE_WRMCMD("slotsmgrtslot", SlotsMGRTSlot_RedisCommand, 0, 0, 0);
@@ -930,13 +912,11 @@ RedisModule_OnLoad(RedisModuleCtx* ctx, RedisModuleString** argv, int argc) {
     CREATE_WRMCMD("slotsmgrttagslot", SlotsMGRTTagSlot_RedisCommand, 0, 0, 0);
     CREATE_WRMCMD("slotsrestore", SlotsRestore_RedisCommand, 0, 0, 0);
     CREATE_WRMCMD("slotsdel", SlotsDel_RedisCommand, 0, 0, 0);
-    // CREATE_WRMCMD("slotstest", SlotsTest_RedisCommand, 0, 0, 0);
 
     return REDISMODULE_OK;
 }
 
 int RedisModule_OnUnload(RedisModuleCtx* ctx) {
-    // UNUSED(ctx)
     Slots_Free(ctx);
     return REDISMODULE_OK;
 }

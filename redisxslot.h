@@ -26,7 +26,7 @@
  * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
  * POSSIBILITY OF SUCH DAMAGE.
  */
-/* 6.0 need open REDISMODULE_EXPERIMENTAL_API for */
+/* 6.0 need open REDISMODULE_EXPERIMENTAL_API */
 #define REDISMODULE_EXPERIMENTAL_API
 #ifndef REDISXSLOT_H
 #define REDISXSLOT_H
@@ -59,6 +59,7 @@
 #define REDISXSLOT_ERRORMSG_SYNTAX "ERR syntax error"
 #define REDISXSLOT_ERRORMSG_MGRT "ERR migrate error"
 #define REDISXSLOT_ERRORMSG_DEL "ERR del error"
+#define REDISXSLOT_ERRORMSG_CLI_DISCONN "ERR client disconnected error"
 
 // define const
 #define DEFAULT_HASH_SLOTS_MASK 0x000003ff
@@ -120,6 +121,8 @@ typedef struct _slots_meta_info {
     int databases;
     // from config activerehashing yes(1)/no(0)
     int activerehashing;
+    // async block mgrt client
+    int async;
     // cronloop event callback cn
     int cronloops;
     // thread pool size (dump mgrt restore)
@@ -135,8 +138,12 @@ typedef struct _db_slot_info {
     int slotkey_table_rehashing;
     // hash table entry: RedisModuleString* key,val(crc)
     dict** slotkey_tables;
+    // slotkey_table db slot dict's mutex locks
+    pthread_mutex_t* slotkey_table_locks;
     // member: RedisModuleString* key, score: uint32_t crc
     m_zskiplist* tagged_key_list;
+    // tagged_key_list per db's rwlock
+    pthread_rwlock_t tagged_key_list_rwlock;
 } db_slot_info;
 
 typedef struct _slot_mgrt_connet_meta {
@@ -166,9 +173,6 @@ typedef struct _rdb_obj rdb_parse_obj;
 typedef struct _slots_restore_one_task_params {
     rdb_dump_obj* obj;
     int result_code;
-    // slot keys mutex lock
-    pthread_mutex_t mutex;
-    // pthread_cond_t cond;
 } slots_restore_one_task_params;
 
 typedef struct _slots_split_restore_params {
@@ -187,6 +191,12 @@ typedef struct _dump_obj_params {
     int result_code;
 } dump_obj_params;
 
+typedef struct _bg_call_params {
+    RedisModuleBlockedClient* bc;
+    RedisModuleString** argv;
+    int argc;
+} bg_call_params;
+
 // declare defined extern var to out use
 extern slots_meta_info g_slots_meta_info;
 extern db_slot_info* db_slot_infos;
@@ -195,8 +205,9 @@ extern db_slot_info* db_slot_infos;
 void crc32_init();
 uint32_t crc32_checksum(const char* buf, int len);
 int slots_num(const char* s, uint32_t* pcrc, int* phastag);
+RedisModuleString* takeAndRef(RedisModuleCtx* ctx, RedisModuleString* str);
 void Slots_Init(RedisModuleCtx* ctx, uint32_t hash_slots_size, int databases,
-                int num_threads, int activerehashing);
+                int num_threads, int activerehashing, int async);
 void Slots_Free(RedisModuleCtx* ctx);
 int SlotsMGRT_OneKey(RedisModuleCtx* ctx, const char* host, const char* port,
                      time_t timeout, RedisModuleString* key,

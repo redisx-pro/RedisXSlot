@@ -138,6 +138,23 @@
             "MIMode": "gdb"
         },
         {
+            "name": "blockclient",
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/../redis/src/redis-server",
+            "args": [
+                //"./redis.conf",
+                "--loadmodule  ${workspaceFolder}/../redis/tests/modules/blockedclient.so",
+                "--dbfilename dump.blockclient.rdb",
+            ],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}",
+            "environment": [],
+            "externalConsole": false,
+            "internalConsoleOptions": "openOnSessionStart",
+            "MIMode": "gdb"
+        },
+        {
             "name": "helloblock",
             "type": "cppdbg",
             "request": "launch",

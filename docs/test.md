@@ -1,4 +1,6 @@
 # Test Data
+* case1. big tag: slot have many the same hash tag key
+* case2. big key: the key have many field(hash)/member(set/zset)
 ```shell
 # random test type data (random hash key 10m requests, 1m keys)
 redis/src/redis-benchmark -h 127.0.0.1 -p 6379 -t set,lpush,hset,sadd,zadd -n 10000000 -r 1000000  -q
@@ -15,7 +17,7 @@ redis/src/redis-benchmark -h 127.0.0.1 -p 6379 -n 10000000 -r 1000000 zadd myzse
 ```
 # MGRT
 * env: vm ubuntu 6.2.0-27-generic 4 cores, Intel(R) Core(TM) i5-1038NG7 CPU @ 2.00GHz
-* init slot 1024, activingrehash dict, `slotsrestore` cmd split params size 1M, local mgrt(no driver i/o).
+* init slot 1024, activingrehash dict, `slotsrestore` cmd split params size 1M, local mgrt(no net driver i/o).
 ```shell
 # mgrt the same hash tag 1m keys (tag: {stringtag} slot 835)
 SLOTSMGRTTAGSLOT 127.0.0.1 6372 30000 835
@@ -73,3 +75,7 @@ SLOTSMGRTTAGSLOT 127.0.0.1 6372 30000 531
 6860:M 25 Aug 2023 04:06:52.640 * <redisxslot> 1000000 objs mgrt cost 6320.432000 ms
 6860:M 25 Aug 2023 04:06:56.308 * <redisxslot> 1000000 keys del cost 3668.252000 ms
 ```
+
+tips: 
+1. offline mgrt, mgrt cmd with all batch splits block to do
+2. online mgrt, mgrt cmd with one batch split or pipeline one batch to do.

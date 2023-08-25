@@ -15,7 +15,7 @@ redis/src/redis-benchmark -h 127.0.0.1 -p 6379 -n 10000000 -r 1000000 zadd myzse
 ```
 # MGRT
 * env: vm ubuntu 6.2.0-27-generic 4 cores, Intel(R) Core(TM) i5-1038NG7 CPU @ 2.00GHz
-* init slot 1024, activingrehash dict, `slotsrestore` cmd params size 1M, local mgrt(no driver i/o).
+* init slot 1024, activingrehash dict, `slotsrestore` cmd split params size 1M, local mgrt(no driver i/o).
 ```shell
 # mgrt the same hash tag 1m keys (tag: {stringtag} slot 835)
 SLOTSMGRTTAGSLOT 127.0.0.1 6372 30000 835
@@ -35,11 +35,12 @@ SLOTSMGRTTAGSLOT 127.0.0.1 6372 30000 531
 1) (integer) 1000000
 2) (integer) 0
 (21.38s)
+
 35534:M 22 Aug 2023 17:14:46.303 * <redisxslot> 1000000 objs dump cost 6437.805000 ms
 35534:M 22 Aug 2023 17:14:55.033 * <redisxslot> 1000000 objs mgrt cost 8729.308000 ms
 35534:M 22 Aug 2023 17:14:59.854 * <redisxslot> 1000000 keys del cost 5821.002000 ms
 ```
-2. use thread pool size 4, 4 worker threads dump&send and one thread restore
+2. use thread pool size 4, 4 worker threads(4 connects) dump&send and one thread restore
 ```shell
 # hash tag {tag} 1m string keys
 127.0.0.1:6379> SLOTSMGRTTAGSLOT 127.0.0.1 6372 30000 899
@@ -51,5 +52,24 @@ SLOTSMGRTTAGSLOT 127.0.0.1 6372 30000 531
 34674:M 22 Aug 2023 16:59:16.381 * <redisxslot> 1000000 objs mgrt cost 8016.692000 ms
 34674:M 22 Aug 2023 16:59:22.427 * <redisxslot> 1000000 keys del cost 6046.166000 ms
 ```
-3. use thread pool size 4, one worker threads dump&send and 4 worker threads restore
-4. use thread pool size 4, 4 worker threads dump&send and 4 worker threads restore
+3. no thread pool, one thread dump&send and one async block thread restore
+```shell
+127.0.0.1:6372> SLOTSMGRTTAGSLOT 127.0.0.1 6379 30000 835
+1) (integer) 1000000
+2) (integer) 0
+(15.67s)
+4511:M 25 Aug 2023 03:29:47.003 * <redisxslot> 1000000 objs dump cost 4884.850000 ms
+4511:M 25 Aug 2023 03:31:38.797 * <redisxslot> 1000000 objs mgrt cost 6801.582000 ms
+4511:M 25 Aug 2023 03:31:42.368 * <redisxslot> 1000000 keys del cost 3570.632000 ms
+```
+4. use thread pool size 4, 4 worker threads(4 connects) dump&send and one async block thread restore
+```shell
+127.0.0.1:6372> SLOTSMGRTTAGSLOT 127.0.0.1 6379 30000 835
+1) (integer) 1000000
+2) (integer) 0
+(15.15s)
+
+6860:M 25 Aug 2023 04:06:46.319 * <redisxslot> 1000000 objs dump cost 5029.533000 ms
+6860:M 25 Aug 2023 04:06:52.640 * <redisxslot> 1000000 objs mgrt cost 6320.432000 ms
+6860:M 25 Aug 2023 04:06:56.308 * <redisxslot> 1000000 keys del cost 3668.252000 ms
+```

@@ -18,12 +18,12 @@
 5. sub KeyspaceEvents `STRING,LIST,HASH,SET,ZSET, LOADED; GENERIC, EXPIRED`
     1. sub keyspaces `STRING,LIST,HASH,SET,ZSET, LOADED` notify event hook to add dict/skiplist keys
     2. sub keyspaces `GENERIC, EXPIRED` notify event hook to delete dict/skiplist keys
-6. support slot tag key migrate, for (smart client)/proxy)'s configSrv admin contoller lay use it.
+6. support slot tag key migrate, for (smart client/proxy)'s configSrv admin contoller layer use it.
     use `SLOTSMGRTTAGSLOT` cmd to migrate slot's key with same tag,
-    default use slotsrestore batch send key, ttlms, dump rdb val ... ( restore with replace)
+    default use slotsrestore batch send key, ttlms, dump rdb val ... (restore with replace)
     if migrate cmd use withretore, pipeline buff to send key ttlms (restore with replace)
-7. `SLOTSRESTORE` if num_threads>0, init thread pool size to do restore one key job. loadmodule like this `./redis/src/redis-server --port 6379 --loadmodule ./redisxslot.so 1024 4 --dbfilename dump.6379.rdb`
-8. about migrate cmd, create a thread async block todo per client, don't block other cmd 
+7. `SLOTSRESTORE` if num_threads>0, init thread pool size to send `slotsrestore` batch keys job. loadmodule like this `./redis/src/redis-server --port 6379 --loadmodule ./redisxslot.so 1024 4 --dbfilename dump.6379.rdb`
+8. about migrate cmd, create a thread async block todo per client, don't block other cmd. loadmodule like this `./redis/src/redis-server --port 6379 --loadmodule ./redisxslot.so 1024 4 async --dbfilename dump.6379.rdb`
 # Build & LoadModule
 ```shell
 git clone https://github.com/weedge/redisxslot.git

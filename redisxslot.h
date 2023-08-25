@@ -138,8 +138,8 @@ typedef struct _db_slot_info {
     int slotkey_table_rehashing;
     // hash table entry: RedisModuleString* key,val(crc)
     dict** slotkey_tables;
-    // slotkey_table db slot dict's mutex locks
-    pthread_mutex_t* slotkey_table_locks;
+    // slotkey_table db slot dict's rwlocks
+    pthread_rwlock_t* slotkey_table_rwlocks;
     // member: RedisModuleString* key, score: uint32_t crc
     m_zskiplist* tagged_key_list;
     // tagged_key_list per db's rwlock

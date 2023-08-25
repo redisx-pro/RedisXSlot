@@ -54,7 +54,12 @@ void* SlotsRestoreAsyncBlock_ThreadMain(void* arg) {
     bg_call_params* params = (bg_call_params*)arg;
     RedisModuleCtx* ctx = RedisModule_GetThreadSafeContext(params->bc);
     int* r = RedisModule_Alloc(sizeof(int));
+    // Acquire GIL
+    RedisModule_ThreadSafeContextLock(ctx);
     *r = slotsRestoreCmd(ctx, params->argv, params->argc);
+    // Release GIL
+    RedisModule_ThreadSafeContextUnlock(ctx);
+
     RedisModule_UnblockClient(params->bc, r);
     RedisModule_Free(arg);
     return NULL;

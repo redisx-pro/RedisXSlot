@@ -36,7 +36,8 @@ static RedisModuleDict* slotsmgrt_cached_ctx_connects;
 static pthread_mutex_t slotsmgrt_cached_ctx_connects_lock
     = PTHREAD_MUTEX_INITIALIZER;
 // rm_call big locker, need change redis struct to support multi threads :|
-// so mgrt job should async block run, don't block other cmd run :)
+// so mgrt/restore job should async block run, don't block other cmd run :)
+// if change redis struct, use RedisModule_ThreadSafeContextLock GIL instead it.
 static pthread_mutex_t rm_call_lock = PTHREAD_MUTEX_INITIALIZER;
 
 // declare static function to inner use (private prototypes)
@@ -106,13 +107,13 @@ void Slots_Init(RedisModuleCtx* ctx, uint32_t hash_slots_size, int databases,
     for (int j = 0; j < databases; j++) {
         db_slot_infos[j].slotkey_tables
             = RedisModule_Alloc(sizeof(dict*) * hash_slots_size);
-        db_slot_infos[j].slotkey_table_locks
-            = RedisModule_Alloc(sizeof(pthread_mutex_t) * hash_slots_size);
+        db_slot_infos[j].slotkey_table_rwlocks
+            = RedisModule_Alloc(sizeof(pthread_rwlock_t) * hash_slots_size);
         for (uint32_t i = 0; i < hash_slots_size; i++) {
             db_slot_infos[j].slotkey_tables[i]
                 = m_dictCreate(&hashSlotDictType, NULL);
-            pthread_mutex_init(&(db_slot_infos[j].slotkey_table_locks[i]),
-                               NULL);
+            pthread_rwlock_init(&(db_slot_infos[j].slotkey_table_rwlocks[i]),
+                                NULL);
         }
         db_slot_infos[j].slotkey_table_rehashing = 0;
         db_slot_infos[j].tagged_key_list = m_zslCreate();
@@ -127,17 +128,18 @@ void Slots_Free(RedisModuleCtx* ctx) {
     for (int j = 0; j < g_slots_meta_info.databases; j++) {
         if (db_slot_infos != NULL && db_slot_infos[j].slotkey_tables != NULL) {
             for (uint32_t i = 0; i < g_slots_meta_info.hash_slots_size; i++) {
-                pthread_mutex_lock(&(db_slot_infos[j].slotkey_table_locks[i]));
+                pthread_rwlock_wrlock(
+                    &(db_slot_infos[j].slotkey_table_rwlocks[i]));
                 m_dictRelease(db_slot_infos[j].slotkey_tables[i]);
-                pthread_mutex_unlock(
-                    &(db_slot_infos[j].slotkey_table_locks[i]));
-                pthread_mutex_destroy(
-                    &(db_slot_infos[j].slotkey_table_locks[i]));
+                pthread_rwlock_unlock(
+                    &(db_slot_infos[j].slotkey_table_rwlocks[i]));
+                pthread_rwlock_destroy(
+                    &(db_slot_infos[j].slotkey_table_rwlocks[i]));
             }
             RedisModule_Free(db_slot_infos[j].slotkey_tables);
             db_slot_infos[j].slotkey_tables = NULL;
-            RedisModule_Free(db_slot_infos[j].slotkey_table_locks);
-            db_slot_infos[j].slotkey_table_locks = NULL;
+            RedisModule_Free(db_slot_infos[j].slotkey_table_rwlocks);
+            db_slot_infos[j].slotkey_table_rwlocks = NULL;
         }
         if (db_slot_infos != NULL && db_slot_infos[j].tagged_key_list != NULL) {
             pthread_rwlock_wrlock(&(db_slot_infos[j].tagged_key_list_rwlock));
@@ -893,10 +895,8 @@ static int restoreOneWithReplace(RedisModuleCtx* ctx, rdb_dump_obj* obj) {
     const char* k = RedisModule_StringPtrLen(obj->key, NULL);
     size_t vsz;
     const char* v = RedisModule_StringPtrLen(obj->val, &vsz);
-    pthread_mutex_lock(&rm_call_lock);
     RedisModuleCallReply* reply = RedisModule_Call(
         ctx, "RESTORE", "clbc", k, obj->ttlms, v, vsz, "replace");
-    pthread_mutex_unlock(&rm_call_lock);
     if (reply == NULL) {
         return 0;
     }
@@ -929,7 +929,6 @@ static int restoreMutli(RedisModuleCtx* ctx, rdb_dump_obj* objs[], int n) {
 static void restoreOneTask(void* arg) {
     RedisModuleCtx* ctx = RedisModule_GetThreadSafeContext(NULL);
     slots_restore_one_task_params* params = (slots_restore_one_task_params*)arg;
-    // todo async block run restore
     params->result_code = restoreOneWithReplace(ctx, params->obj);
     RedisModule_FreeThreadSafeContext(ctx);
 }
@@ -978,8 +977,10 @@ int SlotsMGRT_SlotOneKey(RedisModuleCtx* ctx, const char* host,
                          const char* port, time_t timeout, int slot,
                          const char* mgrtType, int* left) {
     int db = RedisModule_GetSelectedDb(ctx);
+    pthread_rwlock_rdlock(&(db_slot_infos[db].slotkey_table_rwlocks[slot]));
     const m_dictEntry* de
         = m_dictGetRandomKey(db_slot_infos[db].slotkey_tables[slot]);
+    pthread_rwlock_unlock(&(db_slot_infos[db].slotkey_table_rwlocks[slot]));
     if (de == NULL) {
         return 0;
     }
@@ -996,7 +997,9 @@ int SlotsMGRT_SlotOneKey(RedisModuleCtx* ctx, const char* host,
     }
     RedisModule_FreeString(ctx, key);
     if (left != NULL) {
+        pthread_rwlock_rdlock(&(db_slot_infos[db].slotkey_table_rwlocks[slot]));
         *left = dictSize(db_slot_infos[db].slotkey_tables[slot]);
+        pthread_rwlock_unlock(&(db_slot_infos[db].slotkey_table_rwlocks[slot]));
     }
     return ret;
 }
@@ -1013,8 +1016,11 @@ int SlotsMGRT_TagKeys(RedisModuleCtx* ctx, const char* host, const char* port,
     }
 
     int db = RedisModule_GetSelectedDb(ctx);
+    pthread_rwlock_rdlock(&(db_slot_infos[db].slotkey_table_rwlocks[slot]));
     dict* d = db_slot_infos[db].slotkey_tables[slot];
-    if (dictSize(d) == 0) {
+    unsigned long s = dictSize(d);
+    pthread_rwlock_unlock(&(db_slot_infos[db].slotkey_table_rwlocks[slot]));
+    if (s == 0) {
         return 0;
     }
 
@@ -1062,7 +1068,9 @@ int SlotsMGRT_TagKeys(RedisModuleCtx* ctx, const char* host, const char* port,
                           n, (const sds)mgrtType);
     RedisModule_Free(keys);
     if (left != NULL) {
+        pthread_rwlock_rdlock(&(db_slot_infos[db].slotkey_table_rwlocks[slot]));
         *left = dictSize(db_slot_infos[db].slotkey_tables[slot]);
+        pthread_rwlock_unlock(&(db_slot_infos[db].slotkey_table_rwlocks[slot]));
     }
     return ret;
 }
@@ -1071,8 +1079,10 @@ int SlotsMGRT_TagSlotKeys(RedisModuleCtx* ctx, const char* host,
                           const char* port, time_t timeout, int slot,
                           const char* mgrtType, int* left) {
     int db = RedisModule_GetSelectedDb(ctx);
+    pthread_rwlock_rdlock(&(db_slot_infos[db].slotkey_table_rwlocks[slot]));
     const m_dictEntry* de
         = m_dictGetRandomKey(db_slot_infos[db].slotkey_tables[slot]);
+    pthread_rwlock_unlock(&(db_slot_infos[db].slotkey_table_rwlocks[slot]));
     if (de == NULL) {
         return 0;
     }
@@ -1093,27 +1103,39 @@ static void slotsScanRedisModuleKeyCallback(void* l, const m_dictEntry* de) {
 void SlotsMGRT_Scan(RedisModuleCtx* ctx, int slot, unsigned long count,
                     unsigned long cursor, list* l) {
     int db = RedisModule_GetSelectedDb(ctx);
+    pthread_rwlock_rdlock(&(db_slot_infos[db].slotkey_table_rwlocks[slot]));
     dict* d = db_slot_infos[db].slotkey_tables[slot];
+    pthread_rwlock_unlock(&(db_slot_infos[db].slotkey_table_rwlocks[slot]));
     long loops = count * 10;  // see dictScan
     do {
+        pthread_rwlock_rdlock(&(db_slot_infos[db].slotkey_table_rwlocks[slot]));
         cursor
             = m_dictScan(d, cursor, slotsScanRedisModuleKeyCallback, NULL, l);
+        pthread_rwlock_unlock(&(db_slot_infos[db].slotkey_table_rwlocks[slot]));
         loops--;
     } while (cursor != 0 && loops > 0 && listLength(l) < count);
 }
 
 int SlotsMGRT_DelSlotKeys(RedisModuleCtx* ctx, int db, int slots[], int n) {
     for (int i = 0; i < n; i++) {
+        pthread_rwlock_rdlock(
+            &(db_slot_infos[db].slotkey_table_rwlocks[slots[i]]));
         dict* d = db_slot_infos[db].slotkey_tables[slots[i]];
         int s = dictSize(d);
+        pthread_rwlock_unlock(
+            &(db_slot_infos[db].slotkey_table_rwlocks[slots[i]]));
         if (s == 0) {
             continue;
         }
         list* l = m_listCreate();
         unsigned long cursor = 0;
         do {
+            pthread_rwlock_rdlock(
+                &(db_slot_infos[db].slotkey_table_rwlocks[slots[i]]));
             cursor = m_dictScan(d, cursor, slotsScanRedisModuleKeyCallback,
                                 NULL, l);
+            pthread_rwlock_unlock(
+                &(db_slot_infos[db].slotkey_table_rwlocks[slots[i]]));
             while (1) {
                 m_listNode* head = listFirst(l);
                 if (head == NULL) {
@@ -1183,10 +1205,10 @@ void Slots_Add(RedisModuleCtx* ctx, int db, RedisModuleString* key) {
         = RedisModule_CreateStringFromLongLong(ctx, (long long)crc);
 
     // entry key,val add
-    pthread_mutex_lock(&(db_slot_infos[db].slotkey_table_locks[slot]));
+    pthread_rwlock_wrlock(&(db_slot_infos[db].slotkey_table_rwlocks[slot]));
     int r = m_dictAdd(db_slot_infos[db].slotkey_tables[slot],
                       takeAndRef(NULL, key), (void*)sval);
-    pthread_mutex_unlock(&(db_slot_infos[db].slotkey_table_locks[slot]));
+    pthread_rwlock_unlock(&(db_slot_infos[db].slotkey_table_rwlocks[slot]));
     if (r != DICT_OK) {
         return;
     }
@@ -1208,9 +1230,9 @@ void Slots_Del(RedisModuleCtx* ctx, int db, RedisModuleString* key) {
     int slot = slots_num(kstr, &crc, &hastag);
 
     // entry key,val free
-    pthread_mutex_lock(&(db_slot_infos[db].slotkey_table_locks[slot]));
+    pthread_rwlock_wrlock(&(db_slot_infos[db].slotkey_table_rwlocks[slot]));
     int r = m_dictDelete(db_slot_infos[db].slotkey_tables[slot], key);
-    pthread_mutex_unlock(&(db_slot_infos[db].slotkey_table_locks[slot]));
+    pthread_rwlock_unlock(&(db_slot_infos[db].slotkey_table_rwlocks[slot]));
     if (r != DICT_OK) {
         return;
     }

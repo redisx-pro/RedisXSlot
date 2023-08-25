@@ -36,7 +36,8 @@ static RedisModuleDict* slotsmgrt_cached_ctx_connects;
 static pthread_mutex_t slotsmgrt_cached_ctx_connects_lock
     = PTHREAD_MUTEX_INITIALIZER;
 // rm_call big locker, need change redis struct to support multi threads :|
-// so mgrt/restore job should async block run, don't block other cmd run :)
+// so (*mgrt*)/restore job should async block run,
+// splite batch todo, don't or less block other cmd run :)
 // if change redis struct, use RedisModule_ThreadSafeContextLock GIL instead it.
 static pthread_mutex_t rm_call_lock = PTHREAD_MUTEX_INITIALIZER;
 

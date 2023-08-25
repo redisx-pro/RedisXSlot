@@ -39,6 +39,7 @@
 static int slotsRestoreCmd(RedisModuleCtx* ctx, RedisModuleString** argv,
                            int argc);
 static int dispatchCmd(RedisModuleCtx* ctx, RedisModuleString** argv, int argc);
+
 /* Check if Redis version is compatible with the adapter. */
 static inline int redisModuleCompatibilityCheckV6(void) {
     if (!RedisModule_HoldString || !RedisModule_GetKeyspaceNotificationFlagsAll
@@ -460,7 +461,7 @@ static int slotsRestoreCmd(RedisModuleCtx* ctx, RedisModuleString** argv,
             = RedisModule_StringPtrLen(argv[i * 3 + 2], &ttllen);
         if (!m_string2ll(str_ttlms, ttllen, &ttlms)) {
             FreeDumpObjs(objs, j);
-            return REDISMODULE_ERR;
+            return SLOTS_MGRT_ERR;
         }
         rdb_dump_obj* obj = RedisModule_Alloc(sizeof(rdb_dump_obj));
         obj->key = argv[i * 3 + 1];
@@ -473,7 +474,7 @@ static int slotsRestoreCmd(RedisModuleCtx* ctx, RedisModuleString** argv,
     int ret = SlotsMGRT_Restore(ctx, objs, j);
     if (ret == SLOTS_MGRT_ERR) {
         FreeDumpObjs(objs, j);
-        return REDISMODULE_ERR;
+        return SLOTS_MGRT_ERR;
     }
 
     FreeDumpObjs(objs, j);
@@ -496,7 +497,7 @@ int SlotsRestore_RedisCommand(RedisModuleCtx* ctx, RedisModuleString** argv,
         return RedisModule_WrongArity(ctx);
 
     int ret = slotsRestoreCmd(ctx, argv, argc);
-    if (ret == REDISMODULE_ERR) {
+    if (ret == SLOTS_MGRT_ERR) {
         RedisModule_ReplyWithError(ctx, REDISXSLOT_ERRORMSG_SYNTAX);
         return REDISMODULE_ERR;
     }
@@ -576,9 +577,29 @@ static int dispatchCmd(RedisModuleCtx* ctx, RedisModuleString** argv,
     if (strcasecmp(cmd, "slotsmgrttagone") == 0) {
         return SlotsMGRTTagOne_RedisCommand(ctx, argv, argc);
     }
+    if (strcasecmp(cmd, "slotsmgrtslot") == 0) {
+        return SlotsMGRTSlot_RedisCommand(ctx, argv, argc);
+    }
+    if (strcasecmp(cmd, "slotsmgrtone") == 0) {
+        return SlotsMGRTOne_RedisCommand(ctx, argv, argc);
+    }
+    if (strcasecmp(cmd, "slotsdel") == 0) {
+        return SlotsDel_RedisCommand(ctx, argv, argc);
+    }
+    /* add cmd handler */
 
     RedisModule_Log(ctx, "notice", "cmd %s unsupport async block exec", cmd);
     return REDISMODULE_OK;
+}
+
+/* SlotsDispatchRedisCommand
+ * use this func, must check whether add cmd handler in dispatchCmd */
+int SlotsDispatchRedisCommand(RedisModuleCtx* ctx, RedisModuleString** argv,
+                              int argc) {
+    if (g_slots_meta_info.async) {
+        return SlotsMGRTAsyncBlock_RedisCommand(ctx, argv, argc);
+    }
+    return dispatchCmd(ctx, argv, argc);
 }
 
 static RedisModuleString* redisModule_GetConfigItem(RedisModuleCtx* ctx,
@@ -665,8 +686,7 @@ static int redisModule_SlotsInit(RedisModuleCtx* ctx, RedisModuleString** argv,
     return REDISMODULE_OK;
 }
 
-/*-------------------------------- event handler
- * --------------------------*/
+/*----------------------------- event handler  --------------------------*/
 int htNeedsResize(dict* dict) {
     long long size, used;
 
@@ -984,12 +1004,12 @@ RedisModule_OnLoad(RedisModuleCtx* ctx, RedisModuleString** argv, int argc) {
     CREATE_ROMCMD("slotsinfo", SlotsInfo_RedisCommand, 0, 0, 0);
     CREATE_ROMCMD("slotsscan", SlotsScan_RedisCommand, 0, 0, 0);
 
-    CREATE_WRMCMD("slotsmgrtone", SlotsMGRTOne_RedisCommand, 0, 0, 0);
-    CREATE_WRMCMD("slotsmgrtslot", SlotsMGRTSlot_RedisCommand, 0, 0, 0);
-    CREATE_WRMCMD("slotsmgrttagone", SlotsMGRTTagOne_RedisCommand, 0, 0, 0);
-    CREATE_WRMCMD("slotsmgrttagslot", SlotsMGRTTagSlot_RedisCommand, 0, 0, 0);
+    CREATE_WRMCMD("slotsmgrtone", SlotsDispatchRedisCommand, 0, 0, 0);
+    CREATE_WRMCMD("slotsmgrtslot", SlotsDispatchRedisCommand, 0, 0, 0);
+    CREATE_WRMCMD("slotsmgrttagone", SlotsDispatchRedisCommand, 0, 0, 0);
+    CREATE_WRMCMD("slotsmgrttagslot", SlotsDispatchRedisCommand, 0, 0, 0);
     CREATE_WRMCMD("slotsrestore", SlotsRestore_RedisCommand, 0, 0, 0);
-    CREATE_WRMCMD("slotsdel", SlotsDel_RedisCommand, 0, 0, 0);
+    CREATE_WRMCMD("slotsdel", SlotsDispatchRedisCommand, 0, 0, 0);
 
     return REDISMODULE_OK;
 }

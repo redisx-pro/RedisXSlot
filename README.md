@@ -23,7 +23,7 @@
     default use slotsrestore batch send key, ttlms, dump rdb val ... (restore with replace)
     if migrate cmd use withretore, pipeline buff to send key ttlms (restore with replace)
 7. `SLOTSRESTORE` if num_threads>0, init thread pool size to send `slotsrestore` batch keys job. loadmodule like this `./redis/src/redis-server --port 6379 --loadmodule ./redisxslot.so 1024 4 --dbfilename dump.6379.rdb`
-8. about migrate cmd, create a thread async block todo per client, don't block other cmd. loadmodule like this `./redis/src/redis-server --port 6379 --loadmodule ./redisxslot.so 1024 4 async --dbfilename dump.6379.rdb`
+8. about migrate cmd, create a thread async block todo per client, splite batch migrate, don't or less block other cmd run. loadmodule like this `./redis/src/redis-server --port 6379 --loadmodule ./redisxslot.so 1024 4 async --dbfilename dump.6379.rdb`
 # Build & LoadModule
 ```shell
 git clone https://github.com/weedge/redisxslot.git

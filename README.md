@@ -14,7 +14,7 @@
 4. sub ServerEvent `CronLoop(ServerLoop),FlushDB,Shutdown`
     1. sub CronLoop server event hook to resize/rehash dict (db slot keys tables)
     2. sub FlushDB server event hook to delete one/all dict (db slot keys tables)
-    2. sub Shutdown server event hook to release dicts (db slot keys tables) and free memory.
+    3. sub Shutdown server event hook to release dicts (db slot keys tables) and free memory.
 5. sub KeyspaceEvents `STRING,LIST,HASH,SET,ZSET, LOADED; GENERIC, EXPIRED`
     1. sub keyspaces `STRING,LIST,HASH,SET,ZSET, LOADED` notify event hook to add dict/skiplist keys
     2. sub keyspaces `GENERIC, EXPIRED` notify event hook to delete dict/skiplist keys

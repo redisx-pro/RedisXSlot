@@ -38,7 +38,7 @@
 
 static int slotsRestoreCmd(RedisModuleCtx* ctx, RedisModuleString** argv,
                            int argc);
-
+static int dispatchCmd(RedisModuleCtx* ctx, RedisModuleString** argv, int argc);
 /* Check if Redis version is compatible with the adapter. */
 static inline int redisModuleCompatibilityCheckV6(void) {
     if (!RedisModule_HoldString || !RedisModule_GetKeyspaceNotificationFlagsAll
@@ -50,6 +50,51 @@ static inline int redisModuleCompatibilityCheckV6(void) {
 
 /*------------------------ async block --------------------------------*/
 
+void* SlotsMGRTAsyncBlock_ThreadMain(void* arg) {
+    bg_call_params* params = (bg_call_params*)arg;
+    RedisModuleCtx* ctx = RedisModule_GetThreadSafeContext(params->bc);
+    // Acquire GIL
+    RedisModule_ThreadSafeContextLock(ctx);
+    dispatchCmd(ctx, params->argv, params->argc);
+    // Release GIL
+    RedisModule_ThreadSafeContextUnlock(ctx);
+    // Unblock client
+    RedisModule_UnblockClient(params->bc, NULL);
+    /* Free the arguments */
+    for (int i = 0; i < params->argc; i++)
+        RedisModule_FreeString(ctx, params->argv[i]);
+    RedisModule_Free(params->argv);
+    RedisModule_Free(params);
+    // Free the Redis module context
+    RedisModule_FreeThreadSafeContext(ctx);
+    return NULL;
+}
+
+/* Make sure to async block a client when do mgrt cmd :) */
+int SlotsMGRTAsyncBlock_RedisCommand(RedisModuleCtx* ctx,
+                                     RedisModuleString** argv, int argc) {
+    /* Make a copy of the arguments and pass them to the thread. */
+    bg_call_params* arg = RedisModule_Alloc(sizeof(bg_call_params));
+    arg->bc = RedisModule_BlockClient(ctx, NULL, NULL, NULL, 0);
+    arg->argc = argc;
+    arg->argv = RedisModule_Alloc(sizeof(RedisModuleString*) * argc);
+    for (int i = 0; i < argc; i++)
+        arg->argv[i] = takeAndRef(ctx, argv[i]);
+
+    pthread_t tid;
+    if (pthread_create(&tid, NULL, SlotsMGRTAsyncBlock_ThreadMain, arg) != 0) {
+        /* Free the arguments */
+        for (int i = 0; i < arg->argc; i++)
+            RedisModule_FreeString(ctx, arg->argv[i]);
+        RedisModule_Free(arg->argv);
+        RedisModule_Free(arg);
+        // Abort Block Client
+        RedisModule_AbortBlock(arg->bc);
+        return RedisModule_ReplyWithError(ctx, "-ERR Can't start thread");
+    }
+    return REDISMODULE_OK;
+}
+
 void* SlotsRestoreAsyncBlock_ThreadMain(void* arg) {
     bg_call_params* params = (bg_call_params*)arg;
     RedisModuleCtx* ctx = RedisModule_GetThreadSafeContext(params->bc);
@@ -59,9 +104,15 @@ void* SlotsRestoreAsyncBlock_ThreadMain(void* arg) {
     *r = slotsRestoreCmd(ctx, params->argv, params->argc);
     // Release GIL
     RedisModule_ThreadSafeContextUnlock(ctx);
-
+    // Unblock client
     RedisModule_UnblockClient(params->bc, r);
-    RedisModule_Free(arg);
+    /* Free the arguments */
+    for (int i = 0; i < params->argc; i++)
+        RedisModule_FreeString(ctx, params->argv[i]);
+    RedisModule_Free(params->argv);
+    RedisModule_Free(params);
+    // Free the Redis module context
+    RedisModule_FreeThreadSafeContext(ctx);
     return NULL;
 }
 
@@ -97,7 +148,7 @@ void SlotsRestoreAsyncBlock_Disconnected(RedisModuleCtx* ctx,
 
 int SlotsRestoreAsyncBlock_RedisCommand(RedisModuleCtx* ctx,
                                         RedisModuleString** argv, int argc) {
-    /* Make sure to async block a client when do mgrt/slotsrestore cmd :) */
+    /* Make sure to async block a client when do slotsrestore cmd :) */
 
     if (argc < 4 || (argc - 1) % 3 != 0)
         return RedisModule_WrongArity(ctx);
@@ -118,13 +169,20 @@ int SlotsRestoreAsyncBlock_RedisCommand(RedisModuleCtx* ctx,
     pthread_t tid;
     if (pthread_create(&tid, NULL, SlotsRestoreAsyncBlock_ThreadMain, arg)
         != 0) {
+        /* Free the arguments */
+        for (int i = 0; i < arg->argc; i++)
+            RedisModule_FreeString(ctx, arg->argv[i]);
+        RedisModule_Free(arg->argv);
+        RedisModule_Free(arg);
+        /* Abort Block Client */
         RedisModule_AbortBlock(bc);
         return RedisModule_ReplyWithError(ctx, "-ERR Can't start thread");
     }
     return REDISMODULE_OK;
 }
 
-/*---------------------- command implementation ------------------------------*/
+/*---------------------- command implementation
+ * ------------------------------*/
 int SlotsHashKey_RedisCommand(RedisModuleCtx* ctx, RedisModuleString** argv,
                               int argc) {
     /* Use automatic memory management. */
@@ -509,6 +567,20 @@ int SlotsScan_RedisCommand(RedisModuleCtx* ctx, RedisModuleString** argv,
     return REDISMODULE_OK;
 }
 
+static int dispatchCmd(RedisModuleCtx* ctx, RedisModuleString** argv,
+                       int argc) {
+    const char* cmd = RedisModule_StringPtrLen(argv[0], NULL);
+    if (strcasecmp(cmd, "slotsmgrttagslot") == 0) {
+        return SlotsMGRTTagSlot_RedisCommand(ctx, argv, argc);
+    }
+    if (strcasecmp(cmd, "slotsmgrttagone") == 0) {
+        return SlotsMGRTTagOne_RedisCommand(ctx, argv, argc);
+    }
+
+    RedisModule_Log(ctx, "notice", "cmd %s unsupport async block exec", cmd);
+    return REDISMODULE_OK;
+}
+
 static RedisModuleString* redisModule_GetConfigItem(RedisModuleCtx* ctx,
                                                     const char* name) {
     // config get databases
@@ -593,7 +665,8 @@ static int redisModule_SlotsInit(RedisModuleCtx* ctx, RedisModuleString** argv,
     return REDISMODULE_OK;
 }
 
-/*-------------------------------- event handler  --------------------------*/
+/*-------------------------------- event handler
+ * --------------------------*/
 int htNeedsResize(dict* dict) {
     long long size, used;
 

@@ -54,11 +54,7 @@ static inline int redisModuleCompatibilityCheckV6(void) {
 void* SlotsMGRTAsyncBlock_ThreadMain(void* arg) {
     bg_call_params* params = (bg_call_params*)arg;
     RedisModuleCtx* ctx = RedisModule_GetThreadSafeContext(params->bc);
-    // Acquire GIL
-    RedisModule_ThreadSafeContextLock(ctx);
     dispatchCmd(ctx, params->argv, params->argc);
-    // Release GIL
-    RedisModule_ThreadSafeContextUnlock(ctx);
     // Unblock client
     RedisModule_UnblockClient(params->bc, NULL);
     /* Free the arguments */
@@ -100,11 +96,7 @@ void* SlotsRestoreAsyncBlock_ThreadMain(void* arg) {
     bg_call_params* params = (bg_call_params*)arg;
     RedisModuleCtx* ctx = RedisModule_GetThreadSafeContext(params->bc);
     int* r = RedisModule_Alloc(sizeof(int));
-    // Acquire GIL
-    RedisModule_ThreadSafeContextLock(ctx);
     *r = slotsRestoreCmd(ctx, params->argv, params->argc);
-    // Release GIL
-    RedisModule_ThreadSafeContextUnlock(ctx);
     // Unblock client
     RedisModule_UnblockClient(params->bc, r);
     /* Free the arguments */
@@ -410,6 +402,21 @@ int SlotsMGRTTagSlot_RedisCommand(RedisModuleCtx* ctx, RedisModuleString** argv,
     return REDISMODULE_OK;
 }
 
+int SlotsTest_RedisCommand(RedisModuleCtx* ctx, RedisModuleString** argv,
+                           int argc) {
+    UNUSED(argv);
+    UNUSED(argc);
+    int j = 0;
+    do {
+        ASYNC_LOCK(ctx);
+        sleep(1);
+        ASYNC_UNLOCK(ctx);
+        usleep(1);  // sleep to sched cpu for other cmd, (c++11yeild/gosched)
+        j++;
+    } while (j < 10);
+    RedisModule_ReplyWithNull(ctx);
+    return REDISMODULE_OK;
+}
 /* *
  * slotsdel slot1 [slot2 ...]
  * */
@@ -585,6 +592,9 @@ static int dispatchCmd(RedisModuleCtx* ctx, RedisModuleString** argv,
     }
     if (strcasecmp(cmd, "slotsdel") == 0) {
         return SlotsDel_RedisCommand(ctx, argv, argc);
+    }
+    if (strcasecmp(cmd, "slotstest") == 0) {
+        return SlotsTest_RedisCommand(ctx, argv, argc);
     }
     /* add cmd handler */
 
@@ -1010,6 +1020,7 @@ RedisModule_OnLoad(RedisModuleCtx* ctx, RedisModuleString** argv, int argc) {
     CREATE_WRMCMD("slotsmgrttagslot", SlotsDispatchRedisCommand, 0, 0, 0);
     CREATE_WRMCMD("slotsrestore", SlotsRestore_RedisCommand, 0, 0, 0);
     CREATE_WRMCMD("slotsdel", SlotsDispatchRedisCommand, 0, 0, 0);
+    // CREATE_WRMCMD("slotstest", SlotsDispatchRedisCommand, 0, 0, 0);
 
     return REDISMODULE_OK;
 }

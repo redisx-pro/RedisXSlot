@@ -113,6 +113,18 @@
 #define run_with_period(_ms_, _hz_) \
     if (((_ms_) <= 1000 / _hz_)     \
         || !(g_slots_meta_info.cronloops % ((_ms_) / (1000 / _hz_))))
+#define ASYNC_LOCK(ctx)                             \
+    do {                                            \
+        if (g_slots_meta_info.async) {              \
+            RedisModule_ThreadSafeContextLock(ctx); \
+        }                                           \
+    } while (0);
+#define ASYNC_UNLOCK(ctx)                             \
+    do {                                              \
+        if (g_slots_meta_info.async) {                \
+            RedisModule_ThreadSafeContextUnlock(ctx); \
+        }                                             \
+    } while (0);
 
 // define struct type
 typedef struct _slots_meta_info {

@@ -633,11 +633,11 @@ static int MGRT(RedisModuleCtx* ctx, const sds host, const sds port,
 // return 0 nothing todo -1 error happens; if dump ok, return a new dump obj
 static int dumpObj(RedisModuleCtx* ctx, RedisModuleString* key,
                    rdb_dump_obj** obj) {
-    // RedisModule_ThreadSafeContextLock(ctx);
     pthread_mutex_lock(&rm_call_lock);
+    ASYNC_LOCK(ctx);
     RedisModuleCallReply* reply = RedisModule_Call(ctx, "DUMP", "s", key);
+    ASYNC_UNLOCK(ctx);
     pthread_mutex_unlock(&rm_call_lock);
-    // RedisModule_ThreadSafeContextUnlock(ctx);
     if (reply == NULL)
         return SLOTS_MGRT_NOTHING;
     int type = RedisModule_CallReplyType(reply);
@@ -652,11 +652,11 @@ static int dumpObj(RedisModuleCtx* ctx, RedisModuleString* key,
     RedisModuleString* val = RedisModule_CreateStringFromCallReply(reply);
     RedisModule_FreeCallReply(reply);
 
-    // RedisModule_ThreadSafeContextLock(ctx);
     pthread_mutex_lock(&rm_call_lock);
+    ASYNC_LOCK(ctx);
     reply = RedisModule_Call(ctx, "PTTL", "s", key);
+    ASYNC_UNLOCK(ctx);
     pthread_mutex_unlock(&rm_call_lock);
-    // RedisModule_ThreadSafeContextUnlock(ctx);
     if (reply == NULL)
         return SLOTS_MGRT_NOTHING;
     type = RedisModule_CallReplyType(reply);
@@ -754,7 +754,9 @@ static int delKeys(RedisModuleCtx* ctx, RedisModuleString* keys[], int n) {
     RedisModuleCallReply* reply;
     int ret = 0;
     for (int i = 0; i < n; i++) {
+        ASYNC_LOCK(ctx);
         reply = RedisModule_Call(ctx, "DEL", "s", keys[i]);
+        ASYNC_UNLOCK(ctx);
         int type = RedisModule_CallReplyType(reply);
         if (reply == NULL)
             continue;
@@ -858,8 +860,10 @@ int SlotsMGRT_OneKey(RedisModuleCtx* ctx, const char* host, const char* port,
 }
 
 static void notifyOne(RedisModuleCtx* ctx, RedisModuleString* key) {
+    ASYNC_LOCK(ctx);
     RedisModuleKey* okey
         = RedisModule_OpenKey(ctx, key, REDISMODULE_READ | REDISMODULE_WRITE);
+    ASYNC_UNLOCK(ctx);
 
     // inner type notify
     if (RedisModule_KeyType(okey) == REDISMODULE_KEYTYPE_STRING) {
@@ -896,8 +900,10 @@ static int restoreOneWithReplace(RedisModuleCtx* ctx, rdb_dump_obj* obj) {
     const char* k = RedisModule_StringPtrLen(obj->key, NULL);
     size_t vsz;
     const char* v = RedisModule_StringPtrLen(obj->val, &vsz);
+    ASYNC_LOCK(ctx);
     RedisModuleCallReply* reply = RedisModule_Call(
         ctx, "RESTORE", "clbc", k, obj->ttlms, v, vsz, "replace");
+    ASYNC_UNLOCK(ctx);
     if (reply == NULL) {
         return 0;
     }

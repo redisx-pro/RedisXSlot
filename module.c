@@ -174,8 +174,7 @@ int SlotsRestoreAsyncBlock_RedisCommand(RedisModuleCtx* ctx,
     return REDISMODULE_OK;
 }
 
-/*---------------------- command implementation
- * ------------------------------*/
+/*-------------------- command implementation -----------------------------*/
 int SlotsHashKey_RedisCommand(RedisModuleCtx* ctx, RedisModuleString** argv,
                               int argc) {
     /* Use automatic memory management. */

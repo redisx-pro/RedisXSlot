@@ -39,7 +39,7 @@ static pthread_mutex_t slotsmgrt_cached_ctx_connects_lock
 // so (*mgrt*)/restore job should async block run,
 // splite batch todo, don't or less block other cmd run :)
 // if change redis struct, use RedisModule_ThreadSafeContextLock GIL instead it.
-static pthread_mutex_t rm_call_lock = PTHREAD_MUTEX_INITIALIZER;
+// static pthread_mutex_t rm_call_lock = PTHREAD_MUTEX_INITIALIZER;
 
 // declare static function to inner use (private prototypes)
 static const char* slots_tag(const char* s, int* plen);
@@ -633,11 +633,9 @@ static int MGRT(RedisModuleCtx* ctx, const sds host, const sds port,
 // return 0 nothing todo -1 error happens; if dump ok, return a new dump obj
 static int dumpObj(RedisModuleCtx* ctx, RedisModuleString* key,
                    rdb_dump_obj** obj) {
-    pthread_mutex_lock(&rm_call_lock);
     ASYNC_LOCK(ctx);
     RedisModuleCallReply* reply = RedisModule_Call(ctx, "DUMP", "s", key);
     ASYNC_UNLOCK(ctx);
-    pthread_mutex_unlock(&rm_call_lock);
     if (reply == NULL)
         return SLOTS_MGRT_NOTHING;
     int type = RedisModule_CallReplyType(reply);
@@ -652,11 +650,9 @@ static int dumpObj(RedisModuleCtx* ctx, RedisModuleString* key,
     RedisModuleString* val = RedisModule_CreateStringFromCallReply(reply);
     RedisModule_FreeCallReply(reply);
 
-    pthread_mutex_lock(&rm_call_lock);
     ASYNC_LOCK(ctx);
     reply = RedisModule_Call(ctx, "PTTL", "s", key);
     ASYNC_UNLOCK(ctx);
-    pthread_mutex_unlock(&rm_call_lock);
     if (reply == NULL)
         return SLOTS_MGRT_NOTHING;
     type = RedisModule_CallReplyType(reply);
@@ -755,7 +751,8 @@ static int delKeys(RedisModuleCtx* ctx, RedisModuleString* keys[], int n) {
     int ret = 0;
     for (int i = 0; i < n; i++) {
         ASYNC_LOCK(ctx);
-        reply = RedisModule_Call(ctx, "DEL", "s", keys[i]);
+        // reply = RedisModule_Call(ctx, "DEL", "s", keys[i]);
+        reply = RedisModule_Call(ctx, "UNLINK", "s", keys[i]);
         ASYNC_UNLOCK(ctx);
         int type = RedisModule_CallReplyType(reply);
         if (reply == NULL)
@@ -831,7 +828,7 @@ static int migrateKeys(RedisModuleCtx* ctx, const sds host, const sds port,
     RedisModule_Log(ctx, "notice", "%d objs mgrt cost %f ms", m_ret,
                     (get_us(stop_time) - get_us(start_time)) / 1000);
 
-    // del (unlink?)
+    // del (unlink async del)
     gettimeofday(&start_time, NULL);
     ret = delKeys(ctx, keys, n);
     if (ret == SLOTS_MGRT_ERR) {
@@ -863,7 +860,6 @@ static void notifyOne(RedisModuleCtx* ctx, RedisModuleString* key) {
     ASYNC_LOCK(ctx);
     RedisModuleKey* okey
         = RedisModule_OpenKey(ctx, key, REDISMODULE_READ | REDISMODULE_WRITE);
-    ASYNC_UNLOCK(ctx);
 
     // inner type notify
     if (RedisModule_KeyType(okey) == REDISMODULE_KEYTYPE_STRING) {
@@ -891,6 +887,7 @@ static void notifyOne(RedisModuleCtx* ctx, RedisModuleString* key) {
     // need to register keyspace notify and sub event
 
     RedisModule_CloseKey(okey);
+    ASYNC_UNLOCK(ctx);
 }
 
 static int restoreOneWithReplace(RedisModuleCtx* ctx, rdb_dump_obj* obj) {

@@ -135,6 +135,8 @@ typedef struct _slots_meta_info {
     int activerehashing;
     // async block mgrt client
     int async;
+    // setcpuaffinity for async block mgrt thread
+    const char* async_cpulist;
     // cronloop event callback cn
     int cronloops;
     // thread pool size (dump mgrt restore)
@@ -219,7 +221,8 @@ uint32_t crc32_checksum(const char* buf, int len);
 int slots_num(const char* s, uint32_t* pcrc, int* phastag);
 RedisModuleString* takeAndRef(RedisModuleCtx* ctx, RedisModuleString* str);
 void Slots_Init(RedisModuleCtx* ctx, uint32_t hash_slots_size, int databases,
-                int num_threads, int activerehashing, int async);
+                int num_threads, int activerehashing, int async,
+                const char* async_cpulist);
 void Slots_Free(RedisModuleCtx* ctx);
 int SlotsMGRT_OneKey(RedisModuleCtx* ctx, const char* host, const char* port,
                      time_t timeout, RedisModuleString* key,
@@ -241,5 +244,12 @@ void SlotsMGRT_CloseTimedoutConns(RedisModuleCtx* ctx);
 void Slots_Add(RedisModuleCtx* ctx, int db, RedisModuleString* key);
 void Slots_Del(RedisModuleCtx* ctx, int db, RedisModuleString* key);
 void FreeDumpObjs(rdb_dump_obj** objs, int n);
+/* Check if we can use setcpuaffinity(). */
+#if (defined __linux || defined __NetBSD__ || defined __FreeBSD__ \
+     || defined __OpenBSD__)
+#define USE_SETCPUAFFINITY
+void setcpuaffinity(const char* cpulist);
+#endif
+void SlotsMGRT_SetCpuAffinity(const char* cpulist);
 
 #endif /* REDISXSLOT_H */

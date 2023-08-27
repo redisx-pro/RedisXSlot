@@ -52,6 +52,7 @@ static inline int redisModuleCompatibilityCheckV6(void) {
 /*------------------------ async block --------------------------------*/
 
 void* SlotsMGRTAsyncBlock_ThreadMain(void* arg) {
+    SlotsMGRT_SetCpuAffinity(g_slots_meta_info.async_cpulist);
     bg_call_params* params = (bg_call_params*)arg;
     RedisModuleCtx* ctx = RedisModule_GetThreadSafeContext(params->bc);
     dispatchCmd(ctx, params->argv, params->argc);
@@ -93,6 +94,7 @@ int SlotsMGRTAsyncBlock_RedisCommand(RedisModuleCtx* ctx,
 }
 
 void* SlotsRestoreAsyncBlock_ThreadMain(void* arg) {
+    SlotsMGRT_SetCpuAffinity(g_slots_meta_info.async_cpulist);
     bg_call_params* params = (bg_call_params*)arg;
     RedisModuleCtx* ctx = RedisModule_GetThreadSafeContext(params->bc);
     int* r = RedisModule_Alloc(sizeof(int));
@@ -689,9 +691,13 @@ static int redisModule_SlotsInit(RedisModuleCtx* ctx, RedisModuleString** argv,
             async = 1;
         }
     }
+    const char* async_cpulist = NULL;
+    if (argc >= 4) {
+        async_cpulist = RedisModule_StringPtrLen(argv[3], NULL);
+    }
 
     Slots_Init(ctx, hash_slots_size, databases, num_threads, activerehashing,
-               async);
+               async, async_cpulist);
     return REDISMODULE_OK;
 }
 

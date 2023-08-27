@@ -86,12 +86,14 @@ m_dictType hashSlotDictType = {
 };
 
 void Slots_Init(RedisModuleCtx* ctx, uint32_t hash_slots_size, int databases,
-                int num_threads, int activerehashing, int async) {
+                int num_threads, int activerehashing, int async,
+                const char* async_cpulist) {
     crc32_init();
 
     g_slots_meta_info.hash_slots_size = hash_slots_size;
     g_slots_meta_info.databases = databases;
     g_slots_meta_info.async = async;
+    g_slots_meta_info.async_cpulist = async_cpulist;
     g_slots_meta_info.activerehashing = activerehashing;
     g_slots_meta_info.cronloops = 0;
 
@@ -1248,4 +1250,12 @@ void Slots_Del(RedisModuleCtx* ctx, int db, RedisModuleString* key) {
                     NULL);
         pthread_rwlock_unlock(&(db_slot_infos[db].tagged_key_list_rwlock));
     }
+}
+
+void SlotsMGRT_SetCpuAffinity(const char* cpulist) {
+#ifdef USE_SETCPUAFFINITY
+    setcpuaffinity(cpulist);
+#else
+    UNUSED(cpulist);
+#endif
 }

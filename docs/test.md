@@ -77,5 +77,4 @@ SLOTSMGRTTAGSLOT 127.0.0.1 6372 30000 531
 ```
 
 tips: 
-1. offline mgrt, mgrt cmd with all batch splits block to do
-2. online mgrt, mgrt cmd with one batch split or pipeline one batch to do.
+1. slot keys mgrt/retore use async to do, sched cpu don't block or less block other cmd.

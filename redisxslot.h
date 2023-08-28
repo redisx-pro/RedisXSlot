@@ -30,7 +30,6 @@
 #define REDISMODULE_EXPERIMENTAL_API
 #ifndef REDISXSLOT_H
 #define REDISXSLOT_H
-
 #include <errno.h>
 #include <inttypes.h>
 #include <limits.h>
@@ -92,7 +91,6 @@
 #define REDISXSLOT_SONAME 0.1.0
 
 // define macro
-#define gettid() syscall(__NR_gettid)
 #define UNUSED(V) ((void)V)
 #define CREATE_CMD(name, tgt, attr, firstkey, lastkey, keystep)                \
     do {                                                                       \

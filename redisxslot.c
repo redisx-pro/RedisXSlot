@@ -215,6 +215,16 @@ static time_t get_unixtime(void) {
     return (time_t)(RedisModule_Milliseconds() / 1e3);
 }
 
+static long long gettid() {
+#ifdef __APPLE__
+    __uint64_t tid;
+    pthread_threadid_np(NULL, &tid);
+    return (long long)tid;
+#else
+    return (long long)syscall(__NR_gettid)
+#endif
+}
+
 // getConnName
 // return {host}:{port}@{thread_id}
 static sds getConnName(const sds host, const sds port) {
@@ -223,7 +233,7 @@ static sds getConnName(const sds host, const sds port) {
     name = sdscatlen(name, ":", 1);
     name = sdscatlen(name, port, sdslen(port));
     char buf[REDIS_LONGSTR_SIZE];
-    long long tid = (long long)gettid();
+    long long tid = gettid();
     // long long tid = (long long)pthread_self();
     m_ll2string(buf, sizeof(buf), tid);
     name = sdscatlen(name, "@", 1);
@@ -258,9 +268,9 @@ static db_slot_mgrt_connect* SlotsMGRT_GetConnCtx(RedisModuleCtx* ctx,
         return NULL;
     }
     redisSetTimeout(c, meta->timeout);
-    RedisModule_Log(ctx, "notice",
-                    "slotsmgrt: connect to target %s set timeout: %ld.%ld",
-                    name, meta->timeout.tv_sec, meta->timeout.tv_usec);
+    RedisModule_Log(
+        ctx, "notice", "slotsmgrt: connect to target %s set timeout: %ld.%ld",
+        name, meta->timeout.tv_sec, (long int)meta->timeout.tv_usec);
 
     conn = RedisModule_Alloc(sizeof(db_slot_mgrt_connect));
     conn->conn_ctx = c;

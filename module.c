@@ -42,11 +42,11 @@ static int dispatchCmd(RedisModuleCtx* ctx, RedisModuleString** argv, int argc);
 
 /* Check if Redis version is compatible with the adapter. */
 static inline int redisModuleCompatibilityCheckV6(void) {
-    if (!RedisModule_HoldString || !RedisModule_GetKeyspaceNotificationFlagsAll
-        || !REDISMODULE_NOTIFY_LOADED) {
-        return REDIS_ERR;
-    }
-    return REDIS_OK;
+#ifdef REDISMODULE_NOTIFY_LOADED
+    return REDISMODULE_OK;
+#else
+    return REDISMODULE_ERR;
+#endif
 }
 
 /*------------------------ async block --------------------------------*/

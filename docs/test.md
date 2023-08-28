@@ -60,6 +60,7 @@ SLOTSMGRTTAGSLOT 127.0.0.1 6372 30000 531
 1) (integer) 1000000
 2) (integer) 0
 (15.67s)
+
 4511:M 25 Aug 2023 03:29:47.003 * <redisxslot> 1000000 objs dump cost 4884.850000 ms
 4511:M 25 Aug 2023 03:31:38.797 * <redisxslot> 1000000 objs mgrt cost 6801.582000 ms
 4511:M 25 Aug 2023 03:31:42.368 * <redisxslot> 1000000 keys del cost 3570.632000 ms
@@ -74,6 +75,17 @@ SLOTSMGRTTAGSLOT 127.0.0.1 6372 30000 531
 6860:M 25 Aug 2023 04:06:46.319 * <redisxslot> 1000000 objs dump cost 5029.533000 ms
 6860:M 25 Aug 2023 04:06:52.640 * <redisxslot> 1000000 objs mgrt cost 6320.432000 ms
 6860:M 25 Aug 2023 04:06:56.308 * <redisxslot> 1000000 keys del cost 3668.252000 ms
+```
+5. no thread pool, one thread dump&send and one thread restore with pipeline mgrt.
+```shell
+127.0.0.1:6379> SLOTSMGRTTAGSLOT 127.0.0.1 6372 30000 835 withpipeline
+1) (integer) 1000000
+2) (integer) 0
+(16.68s)
+
+182579:M 28 Aug 2023 14:27:50.525 * <redisxslot> 1000000 objs dump cost 5159.550000 ms
+182579:M 28 Aug 2023 14:27:58.204 * <redisxslot> 1000000 objs mgrt cost 7678.581000 ms
+182579:M 28 Aug 2023 14:28:01.910 * <redisxslot> 1000000 keys del cost 3706.172000 ms
 ```
 
 tips: 

@@ -269,7 +269,7 @@ static db_slot_mgrt_connect* SlotsMGRT_GetConnCtx(RedisModuleCtx* ctx,
     }
     redisSetTimeout(c, meta->timeout);
     RedisModule_Log(
-        ctx, "notice", "slotsmgrt: connect to target %s set timeout: %ld.%ld",
+        ctx, "notice", "slotsmgrt: connect to target %s set timeout: %ld.%ld s",
         name, meta->timeout.tv_sec, (long int)meta->timeout.tv_usec);
 
     conn = RedisModule_Alloc(sizeof(db_slot_mgrt_connect));
@@ -373,6 +373,9 @@ static int doSplitRestoreCommand(RedisModuleCtx* ctx,
                                  db_slot_mgrt_connect* conn, char** argv,
                                  size_t* argvlen, int start_pos, int end_pos) {
     int obj_cn = end_pos - start_pos;
+    if (obj_cn <= 0) {
+        return SLOTS_MGRT_NOTHING;
+    }
     char** sub_argv = RedisModule_Alloc(sizeof(char*) * 3 * obj_cn + 1);
     size_t* sub_argvlen = RedisModule_Alloc(sizeof(size_t) * 3 * obj_cn + 1);
     sub_argv[0] = "SLOTSRESTORE";
@@ -562,31 +565,90 @@ static int BatchSend_SlotsRestore(RedisModuleCtx* ctx,
     return n;
 }
 
-static int Pipeline_Restore(RedisModuleCtx* ctx, db_slot_mgrt_connect* conn,
-                            rdb_dump_obj* objs[], int n) {
+static int doSplitPipelineGetReply(RedisModuleCtx* ctx,
+                                   db_slot_mgrt_connect* conn, int start_pos,
+                                   int end_pos) {
     UNUSED(ctx);
+    int n = end_pos - start_pos;
+    if (n <= 0) {
+        return SLOTS_MGRT_NOTHING;
+    }
+    redisReply** rr = RedisModule_Alloc(sizeof(redisReply*) * n);
     for (int i = 0; i < n; i++) {
-        size_t ksz, vsz;
-        const char* k = RedisModule_StringPtrLen(objs[i]->key, &ksz);
-        const char* v = RedisModule_StringPtrLen(objs[i]->val, &vsz);
-        time_t ttlms = objs[i]->ttlms;
-
-        redisAppendCommand(conn->conn_ctx, "RESTORE %b %ld %b replace", k, ksz,
-                           ttlms, v, vsz);
-        // todo pre split to chunk to send,(maybe think bigkey)
+        int r = redisGetReply(conn->conn_ctx, (void*)&rr[i]);
+        if (r == REDIS_ERR) {
+            RedisModule_Log(
+                ctx, "warning",
+                "[%s %d] start_pos %d end_pos %d pos: %d pipeline send fail!",
+                __FILE__, __LINE__, start_pos, end_pos, i - 1);
+            for (int j = 0; j < i; j++)
+                freeReplyObject(rr[j]);
+            RedisModule_Free(rr);
+            return SLOTS_MGRT_ERR;
+        }
+        if (rr[i] == NULL) {
+            RedisModule_Log(
+                ctx, "warning",
+                "[%s %d] start_pos %d end_pos %d pos: %d pipeline send fail!",
+                __FILE__, __LINE__, start_pos, end_pos, i - 1);
+            for (int j = 0; j < i; j++)
+                freeReplyObject(rr[j]);
+            RedisModule_Free(rr);
+            return SLOTS_MGRT_ERR;
+        }
+        if (rr[i]->type == REDIS_REPLY_ERROR) {
+            RedisModule_Log(
+                ctx, "warning",
+                "[%s %d] start_pos %d end_pos %d pos: %d pipeline send fail!",
+                __FILE__, __LINE__, start_pos, end_pos, i);
+            for (int j = 0; j <= i; j++)
+                freeReplyObject(rr[j]);
+            RedisModule_Free(rr);
+            return SLOTS_MGRT_ERR;
+        }
     }
 
-    redisReply* rr;
+    for (int j = 0; j < n; j++) {
+        freeReplyObject(rr[j]);
+    }
+
+    RedisModule_Free(rr);
+    RedisModule_Log(ctx, "notice", "start_pos %d end_pos %d pipeline send ok",
+                    start_pos, end_pos);
+    return n;
+}
+
+static int Pipeline_SlotsRestore(RedisModuleCtx* ctx,
+                                 db_slot_mgrt_connect* conn,
+                                 rdb_dump_obj* objs[], int n) {
+    UNUSED(ctx);
+    char buf[REDIS_LONGSTR_SIZE];
+    size_t cmd_size = 0, ksz = 0, vsz = 0, tsz = 0;
+    int start_pos = 0;
     for (int i = 0; i < n; i++) {
-        int r = redisGetReply(conn->conn_ctx, (void**)&rr);
-        if (r == REDIS_ERR || rr == NULL) {
-            return SLOTS_MGRT_ERR;
+        // split cmd to send,(todo: bigkey)
+        if (cmd_size > REDIS_MGRT_CMD_PARAMS_SIZE) {
+            if (doSplitPipelineGetReply(ctx, conn, start_pos, i)
+                == SLOTS_MGRT_ERR) {
+                return SLOTS_MGRT_ERR;
+            }
+            cmd_size = 0;
+            start_pos = i;
         }
-        if (rr->type == REDIS_REPLY_ERROR) {
-            freeReplyObject(rr);
-            return SLOTS_MGRT_ERR;
-        }
-        freeReplyObject(rr);
+
+        const char* k = RedisModule_StringPtrLen(objs[i]->key, &ksz);
+        cmd_size += ksz;
+        const char* v = RedisModule_StringPtrLen(objs[i]->val, &vsz);
+        cmd_size += vsz;
+        time_t ttlms = objs[i]->ttlms > 0 ? objs[i]->ttlms : 0;
+        tsz = m_ll2string(buf, sizeof(buf), (long long)ttlms);
+        cmd_size += tsz;
+        redisAppendCommand(conn->conn_ctx, "SLOTSRESTORE %b %ld %b", k, ksz,
+                           ttlms, v, vsz);
+    }
+
+    if (doSplitPipelineGetReply(ctx, conn, start_pos, n) == SLOTS_MGRT_ERR) {
+        return SLOTS_MGRT_ERR;
     }
 
     return n;
@@ -594,7 +656,7 @@ static int Pipeline_Restore(RedisModuleCtx* ctx, db_slot_mgrt_connect* conn,
 
 // MGRT
 // batch migrate send to host:port with r/w timeout,
-// use withrestore use redis self restore to migrate,
+// use withpipeline use redis self restore to migrate,
 // default with SlotsRestore.
 // return value:
 //    -1 - error happens
@@ -630,8 +692,9 @@ static int MGRT(RedisModuleCtx* ctx, const sds host, const sds port,
     }
     freeReplyObject(rr);
 
-    if (mgrtType != NULL && strcasecmp(mgrtType, "withrestore") == 0) {
-        int ret = Pipeline_Restore(ctx, conn, objs, n);
+    if (mgrtType != NULL && strcasecmp(mgrtType, "withpipeline") == 0
+        && !g_slots_meta_info.async) {
+        int ret = Pipeline_SlotsRestore(ctx, conn, objs, n);
         SlotsMGRT_CloseConn(ctx, &meta);
         return ret;
     }

@@ -128,7 +128,7 @@ ifeq ($(uname_S),Darwin)
 else
 	@rm -rvf $(SOURCEDIR)/redisxslot.so.$(REDISXSLOT_SONAME)
 	@ldd $(SOURCEDIR)/redisxslot.so
-	@sudo ln -s $(SOURCEDIR)/redisxslot.so $(SOURCEDIR)/redisxslot.so.$(REDISXSLOT_SONAME)
+	@ln -s $(SOURCEDIR)/redisxslot.so $(SOURCEDIR)/redisxslot.so.$(REDISXSLOT_SONAME)
 endif
 
 clean:

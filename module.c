@@ -150,7 +150,7 @@ int SlotsRestoreAsyncBlock_RedisCommand(RedisModuleCtx* ctx,
 
     RedisModuleBlockedClient* bc = RedisModule_BlockClient(
         ctx, SlotsRestoreAsyncBlock_Reply, SlotsRestoreAsyncBlock_Timeout,
-        SlotsRestoreAsyncBlock_FreeData, 60000);
+        SlotsRestoreAsyncBlock_FreeData, 0);
     RedisModule_SetDisconnectCallback(bc, SlotsRestoreAsyncBlock_Disconnected);
 
     /* Make a copy of the arguments and pass them to the thread. */
@@ -364,7 +364,7 @@ int SlotsMGRTTagSlot_RedisCommand(RedisModuleCtx* ctx, RedisModuleString** argv,
     /* Use automatic memory management. */
     RedisModule_AutoMemory(ctx);
 
-    if (argc != 5)
+    if (argc != 5 && argc != 6)
         return RedisModule_WrongArity(ctx);
 
     const char* host = RedisModule_StringPtrLen(argv[1], NULL);

@@ -215,13 +215,13 @@ static time_t get_unixtime(void) {
     return (time_t)(RedisModule_Milliseconds() / 1e3);
 }
 
-static long long gettid() {
+static long long getTid() {
 #ifdef __APPLE__
     __uint64_t tid;
     pthread_threadid_np(NULL, &tid);
     return (long long)tid;
 #else
-    return (long long)syscall(__NR_gettid)
+    return (long long)syscall(__NR_gettid);
 #endif
 }
 
@@ -233,7 +233,7 @@ static sds getConnName(const sds host, const sds port) {
     name = sdscatlen(name, ":", 1);
     name = sdscatlen(name, port, sdslen(port));
     char buf[REDIS_LONGSTR_SIZE];
-    long long tid = gettid();
+    long long tid = getTid();
     // long long tid = (long long)pthread_self();
     m_ll2string(buf, sizeof(buf), tid);
     name = sdscatlen(name, "@", 1);

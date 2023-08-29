@@ -76,7 +76,7 @@ CC_SOURCES = $(wildcard $(SOURCEDIR)/*.c) \
 CC_OBJECTS = $(sort $(patsubst %.c, %.o, $(CC_SOURCES)))
 
 
-all: init redisxslot.so ldd_so
+all: init ${THREADPOOL_DIR}/thpool.o redisxslot.so ldd_so
 
 help:
 	@echo "please choose make with below env params"
@@ -94,6 +94,10 @@ ifeq ($(HIREDIS_USE_DYLIB),1)
 	@rm -rvf $(HIREDIS_RUNTIME_DIR)/libhiredis.so.1.1.0
 	@ln -s $(HIREDIS_DIR)/libhiredis.so $(HIREDIS_RUNTIME_DIR)/libhiredis.so.1.1.0
 endif
+
+${THREADPOOL_DIR}/thpool.o: ${THREADPOOL_DIR}/thpool.c
+	$(CC) -c -o $@ $(SHOBJ_CFLAGS) \
+	$<
 
 ${SOURCEDIR}/module.o: ${SOURCEDIR}/module.c
 	$(CC) -c -o $@ $(SHOBJ_CFLAGS) $(DEP_CFLAGS) \

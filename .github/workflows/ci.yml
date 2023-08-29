@@ -1,0 +1,40 @@
+name: CI
+
+on: [push, pull_request]
+
+jobs:
+  test-ubuntu-with-redis-6:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: clone and make redis
+        run: |
+          sudo apt-get install git
+          git clone https://github.com/redis/redis
+          cd redis
+          git checkout 6.0
+          make REDIS_CFLAGS='-Werror' BUILD_TLS=yes
+      - name: make redisxslot
+        run: |
+          make RM_INCLUDE_DIR=$(pwd)/redis/src
+      - name: test
+        run: |
+          sh -x $(pwd)/tests/run_test.sh
+
+  test-ubuntu-with-redis-7:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: clone and make redis
+        run: |
+          sudo apt-get install git
+          git clone https://github.com/redis/redis
+          cd redis
+          git checkout 7.0
+          make REDIS_CFLAGS='-Werror' BUILD_TLS=yes
+      - name: make redisxslot
+        run: |
+          make RM_INCLUDE_DIR=$(pwd)/redis/src
+      - name: test
+        run: |
+          sh -x $(pwd)/tests/run_test.sh

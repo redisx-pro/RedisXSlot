@@ -42,8 +42,8 @@ Tips:
 use conanfile py script todo ci with makefile release.
 # Test
 1. use `redis/src/redis-benchmark` add test data, test 1b data mgrt, see [doc/test.md](./docs/test.md).
-2. need use redis tcl script `test_helper.tcl` to run test case；
-3. ci loadmodule use test case to Redis test suite and run all test case. 
+2. need use redis tcl script `test_helper.tcl` to run test case；run `sh -x tests/run_test.sh`, so easy~
+3. ci loadmodule use test case to Redis test suite and run all test case. if new feat, add some test case in [tests/redisxslot.tcl](./tests/redisxslot.tcl)
 # Cmd Case
 ```shell
 127.0.0.1:6660> setex 122{tag} 86400 v3

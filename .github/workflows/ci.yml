@@ -17,6 +17,9 @@ jobs:
       - name: make redisxslot
         run: |
           make RM_INCLUDE_DIR=$(pwd)/redis/src
+      - name: install tcllib
+        run: |
+          bash -x $(pwd)/tests/install_tcllib.sh
       - name: test
         run: |
           bash -x $(pwd)/tests/run_test.sh
@@ -35,6 +38,9 @@ jobs:
       - name: make redisxslot
         run: |
           make RM_INCLUDE_DIR=$(pwd)/redis/src
+      - name: install tcllib
+        run: |
+          bash -x $(pwd)/tests/install_tcllib.sh
       - name: test
         run: |
           bash -x $(pwd)/tests/run_test.sh

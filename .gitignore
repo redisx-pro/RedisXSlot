@@ -64,3 +64,6 @@ dkms.conf
 redis
 *.rdb
 .env/
+tcllib.fossil
+tcllib*/
+tcllib*.gz

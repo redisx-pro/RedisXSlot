@@ -156,16 +156,18 @@ proc test_unload {r} {
 #--------------------- start server loadmodule test -------------------#
 tags "modules" {
     test {start redis server loadmodule: default 1024 slots no async block no thread pool} {
-        start_server [list overrides [list loadmodule "$testmodule" enable-module-command "yes"]] {
+        start_server [list overrides [list loadmodule "$testmodule"]] {
             print_module_args r
+            init_config_1 r
             test_local_cmd r 1024
             test_unload r
         }
     }
 
     test {start redis server loadmodule: 65536 slots no async block no thread pool} {
-        start_server [list overrides [list loadmodule "$testmodule 65536" enable-module-command "yes"]] {
+        start_server [list overrides [list loadmodule "$testmodule 65536"]] {
             print_module_args r
+            init_config_1 r
             test_local_cmd r 65536
             test_unload r
         }

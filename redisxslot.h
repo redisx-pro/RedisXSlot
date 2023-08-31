@@ -235,8 +235,8 @@ int SlotsMGRT_TagSlotKeys(RedisModuleCtx* ctx, const char* host,
                           const char* port, time_t timeout, int slot,
                           const char* mgrtType, int* left);
 int SlotsMGRT_Restore(RedisModuleCtx* ctx, rdb_dump_obj* objs[], int n);
-void SlotsMGRT_Scan(RedisModuleCtx* ctx, int slot, unsigned long count,
-                    unsigned long cursor, list* l);
+unsigned long SlotsMGRT_Scan(RedisModuleCtx* ctx, int slot, unsigned long count,
+                             unsigned long cursor, list* l);
 int SlotsMGRT_DelSlotKeys(RedisModuleCtx* ctx, int db, int slots[], int n);
 void SlotsMGRT_CloseTimedoutConns(RedisModuleCtx* ctx);
 void Slots_Add(RedisModuleCtx* ctx, int db, RedisModuleString* key);

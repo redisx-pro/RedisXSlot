@@ -557,10 +557,12 @@ int SlotsScan_RedisCommand(RedisModuleCtx* ctx, RedisModuleString** argv,
     }
 
     list* l = m_listCreate();
-    SlotsMGRT_Scan(ctx, (int)slot, (unsigned long)count, (unsigned long)cursor,
-                   l);
+    unsigned long next_cursor = SlotsMGRT_Scan(
+        ctx, (int)slot, (unsigned long)count, (unsigned long)cursor, l);
     RedisModule_ReplyWithArray(ctx, 2);
-    RedisModule_ReplyWithLongLong(ctx, cursor);
+    char buf[REDIS_LONGSTR_SIZE];
+    int blen = m_ll2string(buf, sizeof(buf), next_cursor);
+    RedisModule_ReplyWithStringBuffer(ctx, buf, blen);
     RedisModule_ReplyWithArray(ctx, listLength(l));
     do {
         m_listNode* head = listFirst(l);

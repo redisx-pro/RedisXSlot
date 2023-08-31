@@ -1179,8 +1179,8 @@ static void slotsScanRedisModuleKeyCallback(void* l, const m_dictEntry* de) {
     m_listAddNodeTail((list*)l, key);
 }
 
-void SlotsMGRT_Scan(RedisModuleCtx* ctx, int slot, unsigned long count,
-                    unsigned long cursor, list* l) {
+unsigned long SlotsMGRT_Scan(RedisModuleCtx* ctx, int slot, unsigned long count,
+                             unsigned long cursor, list* l) {
     int db = RedisModule_GetSelectedDb(ctx);
     pthread_rwlock_rdlock(&(db_slot_infos[db].slotkey_table_rwlocks[slot]));
     dict* d = db_slot_infos[db].slotkey_tables[slot];
@@ -1193,6 +1193,7 @@ void SlotsMGRT_Scan(RedisModuleCtx* ctx, int slot, unsigned long count,
         pthread_rwlock_unlock(&(db_slot_infos[db].slotkey_table_rwlocks[slot]));
         loops--;
     } while (cursor != 0 && loops > 0 && listLength(l) < count);
+    return cursor;
 }
 
 int SlotsMGRT_DelSlotKeys(RedisModuleCtx* ctx, int db, int slots[], int n) {

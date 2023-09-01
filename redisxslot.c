@@ -846,10 +846,14 @@ static int delKeys(RedisModuleCtx* ctx, RedisModuleString* keys[], int n) {
     return ret;
 }
 
-void FreeDumpObjs(rdb_dump_obj** objs, int n) {
+void FreeDumpObjs(RedisModuleCtx* ctx, rdb_dump_obj** objs, int n) {
     for (int i = 0; i < n; i++) {
         if (objs[i] != NULL) {
             RedisModule_Free(objs[i]);
+            if (objs[i]->val != NULL) {
+                RedisModule_FreeString(ctx, objs[i]->val);
+                objs[i]->val = NULL;
+            }
             objs[i] = NULL;
         }
     }
@@ -876,11 +880,11 @@ static int migrateKeys(RedisModuleCtx* ctx, const sds host, const sds port,
     rdb_dump_obj** objs = RedisModule_Alloc(sizeof(rdb_dump_obj*) * n);
     int ret = getRdbDumpObjs(ctx, keys, n, objs);
     if (ret == SLOTS_MGRT_NOTHING) {
-        FreeDumpObjs(objs, ret);
+        FreeDumpObjs(ctx, objs, ret);
         return 0;
     }
     if (ret == SLOTS_MGRT_ERR) {
-        FreeDumpObjs(objs, ret);
+        FreeDumpObjs(ctx, objs, ret);
         return SLOTS_MGRT_ERR;
     }
     gettimeofday(&stop_time, NULL);
@@ -891,14 +895,14 @@ static int migrateKeys(RedisModuleCtx* ctx, const sds host, const sds port,
     gettimeofday(&start_time, NULL);
     int m_ret = MGRT(ctx, host, port, timeoutMS, objs, ret, mgrtType);
     if (m_ret == SLOTS_MGRT_ERR) {
-        FreeDumpObjs(objs, ret);
+        FreeDumpObjs(ctx, objs, ret);
         return SLOTS_MGRT_ERR;
     }
     if (m_ret == 0) {
-        FreeDumpObjs(objs, ret);
+        FreeDumpObjs(ctx, objs, ret);
         return m_ret;
     }
-    FreeDumpObjs(objs, ret);
+    FreeDumpObjs(ctx, objs, ret);
     gettimeofday(&stop_time, NULL);
     RedisModule_Log(ctx, "notice", "%d objs mgrt cost %f ms", m_ret,
                     (get_us(stop_time) - get_us(start_time)) / 1000);

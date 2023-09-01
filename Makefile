@@ -3,6 +3,7 @@
 # This file is released under the MIT license, see the LICENSE file
 
 CC=gcc
+BUILD_TYPE ?= Debug
 # redis version >= 6.0.0
 # or use RedisModule_GetServerVersion but version >= 6.0.9
 REDIS_VERSION ?= 60000
@@ -48,17 +49,43 @@ ifndef RM_INCLUDE_DIR
 	RM_INCLUDE_DIR=$(SDK_DIR)
 endif
 
+ENABLE_SANITIZE?=NO
+SANITIZE_CFLAGS?=
+SANITIZE_LDLAGS?=
+OPTIMIZE_CFLAGS?=-O3
+ifeq ($(BUILD_TYPE),Debug)
+ifeq ($(ENABLE_SANITIZE),YES)
+# https://gist.github.com/weedge/bdf786fb9ccdf4d84ba08ae8e71c5f98
+# https://github.com/google/sanitizers/issues/679
+	SANITIZE_CFLAGS=-fsanitize=address -fno-omit-frame-pointer -fsanitize-address-use-after-scope 
+	SANITIZE_LDLAGS=-fsanitize=address -lasan
+endif
+	OPTIMIZE_CFLAGS=-O0
+endif
 # find the OS
 uname_S := $(shell sh -c 'uname -s 2>/dev/null || echo not')
 # Compile flags for linux / osx
 ifeq ($(uname_S),Linux)
-	SHOBJ_CFLAGS ?= -DREDIS_VERSION=$(REDIS_VERSION) -I$(RM_INCLUDE_DIR) \
-					-W -fPIC -Wall -fno-common -g -ggdb -std=gnu99 -D_GNU_SOURCE -D_XOPEN_SOURCE=600 -O0 -pthread -fvisibility=hidden
-	SHOBJ_LDFLAGS ?= -shared -Bsymbolic -fvisibility=hidden
+	SHOBJ_CFLAGS ?= $(OPTIMIZE_CFLAGS) \
+					$(SANITIZE_CFLAGS) \
+					-DREDIS_VERSION=$(REDIS_VERSION) -I$(RM_INCLUDE_DIR) \
+					-fPIC -W -Wall -fno-common -g -ggdb -std=gnu99 \
+					-D_GNU_SOURCE -D_XOPEN_SOURCE=600 \
+					-pthread -fvisibility=hidden 
+	SHOBJ_LDFLAGS ?= -fPIC -shared -Bsymbolic \
+					$(SANITIZE_LDLAGS) \
+					-fvisibility=hidden
+					
 else
-	SHOBJ_CFLAGS ?= -DREDIS_VERSION=$(REDIS_VERSION) -I$(RM_INCLUDE_DIR) \
-					-W -fPIC -Wall -dynamic -fno-common -g -ggdb -std=gnu99 -D_GNU_SOURCE -O0 -pthread -fvisibility=hidden
-	SHOBJ_LDFLAGS ?= -bundle -undefined dynamic_lookup -keep_private_externs
+	SHOBJ_CFLAGS ?= $(OPTIMIZE_CFLAGS) \
+					$(SANITIZE_CFLAGS) \
+					-DREDIS_VERSION=$(REDIS_VERSION) -I$(RM_INCLUDE_DIR) \
+					-fPIC -W -Wall -dynamic -fno-common -g -ggdb -std=gnu99 \
+					-D_GNU_SOURCE \
+					-pthread -fvisibility=hidden
+	SHOBJ_LDFLAGS ?= -fPIC -bundle -undefined dynamic_lookup \
+					$(SANITIZE_LDLAGS) \
+					-keep_private_externs
 endif
 
 # OS X 11.x doesn't have /usr/lib/libSystem.dylib and needs an explicit setting.
@@ -80,6 +107,8 @@ all: init ${THREADPOOL_DIR}/thpool.o redisxslot.so ldd_so
 
 help:
 	@echo "please choose make with below env params"
+	@echo "BUILD_TYPE={Debug or Release} default Debug"
+	@echo "ENABLE_SANITIZE={YES or NO} default NO"
 	@echo "RM_INCLUDE_DIR={redis_absolute_path}/src, include redismodule.h"
 	@echo "HIREDIS_USE_DYLIB=1, linker with use hiredis.so"
 	@echo "HIREDIS_USE_DYLIB=1 HIREDIS_RUNTIME_DIR=/usr/local/lib ,if pkg install hiredis, linker with HIREDIS_RUNTIME_DIR use hiredis.so"
@@ -88,8 +117,8 @@ help:
 init:
 	@git submodule init
 	@git submodule update
-	@make -C $(SDK_DIR)/rmutil CFLAGS="-g -fPIC -O0 -std=gnu99 -Wall -Wno-unused-function -fvisibility=hidden -I$(RM_INCLUDE_DIR)"
-	@make -C $(HIREDIS_DIR) OPTIMIZATION="-O0" CFLAGS="-fvisibility=hidden" LDFLAGS="-fvisibility=hidden"
+	@make -C $(SDK_DIR)/rmutil CFLAGS="-g -fPIC $(OPTIMIZE_CFLAGS) -std=gnu99 -Wall -Wno-unused-function -fvisibility=hidden -I$(RM_INCLUDE_DIR)"
+	@make -C $(HIREDIS_DIR) OPTIMIZATION="$(OPTIMIZE_CFLAGS)" CFLAGS="-fvisibility=hidden" LDFLAGS="-fvisibility=hidden"
 ifeq ($(HIREDIS_USE_DYLIB),1)
 	@rm -rvf $(HIREDIS_RUNTIME_DIR)/libhiredis.so.1.1.0
 	@ln -s $(HIREDIS_DIR)/libhiredis.so $(HIREDIS_RUNTIME_DIR)/libhiredis.so.1.1.0
@@ -143,3 +172,4 @@ clean:
 	cd $(SDK_DIR)/rmutil && make clean 
 	rm -rvf $(HIREDIS_RUNTIME_DIR)/libhiredis.so.1.1.0
 	rm -rvf $(SOURCEDIR)/redisxslot.so.$(REDISXSLOT_SONAME)
+	rm -rvf $(SOURCEDIR)/redisxslot.dylib.$(REDISXSLOT_SONAME)

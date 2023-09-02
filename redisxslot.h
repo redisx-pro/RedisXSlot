@@ -241,7 +241,7 @@ int SlotsMGRT_DelSlotKeys(RedisModuleCtx* ctx, int db, int slots[], int n);
 void SlotsMGRT_CloseTimedoutConns(RedisModuleCtx* ctx);
 void Slots_Add(RedisModuleCtx* ctx, int db, RedisModuleString* key);
 void Slots_Del(RedisModuleCtx* ctx, int db, RedisModuleString* key);
-void FreeDumpObjs(rdb_dump_obj** objs, int n);
+void FreeDumpObjs(RedisModuleCtx* ctx, rdb_dump_obj** objs, int n);
 /* Check if we can use setcpuaffinity(). */
 #if (defined __linux || defined __NetBSD__ || defined __FreeBSD__ \
      || defined __OpenBSD__)

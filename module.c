@@ -226,7 +226,8 @@ int SlotsInfo_RedisCommand(RedisModuleCtx* ctx, RedisModuleString** argv,
     int n = 0;
     long long end = start + count;
     int db = RedisModule_GetSelectedDb(ctx);
-    for (int i = start; i < end; i++) {
+    for (int i = start; i < end && i < (int)g_slots_meta_info.hash_slots_size;
+         i++) {
         int s = dictSize(db_slot_infos[db].slotkey_tables[i]);
         if (s == 0) {
             continue;
@@ -468,24 +469,24 @@ static int slotsRestoreCmd(RedisModuleCtx* ctx, RedisModuleString** argv,
         const char* str_ttlms
             = RedisModule_StringPtrLen(argv[i * 3 + 2], &ttllen);
         if (!m_string2ll(str_ttlms, ttllen, &ttlms)) {
-            FreeDumpObjs(objs, j);
+            FreeDumpObjs(ctx, objs, j);
             return SLOTS_MGRT_ERR;
         }
         rdb_dump_obj* obj = RedisModule_Alloc(sizeof(rdb_dump_obj));
         obj->key = argv[i * 3 + 1];
         obj->ttlms = (time_t)ttlms;
-        obj->val = argv[i * 3 + 3];
+        obj->val = takeAndRef(ctx, argv[i * 3 + 3]);
         objs[j] = obj;
         j++;
     }
 
     int ret = SlotsMGRT_Restore(ctx, objs, j);
     if (ret == SLOTS_MGRT_ERR) {
-        FreeDumpObjs(objs, j);
+        FreeDumpObjs(ctx, objs, j);
         return SLOTS_MGRT_ERR;
     }
 
-    FreeDumpObjs(objs, j);
+    FreeDumpObjs(ctx, objs, j);
     return ret;
 }
 

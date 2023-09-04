@@ -261,7 +261,7 @@ proc test_mgrt_cmd {r slotsize testmodule} {
         }
 
         test "test slotsmgrtslot dest $dest_host:$dest_port - slotsize: $slotsize" {
-            #test_slotsmgrtslot $r $src $dest $dest_host $dest_port $slotsize
+            test_slotsmgrtslot $r $src $dest $dest_host $dest_port $slotsize
         }
 
         test "test slotsmgrttagone dest $dest_host:$dest_port - slotsize: $slotsize" {

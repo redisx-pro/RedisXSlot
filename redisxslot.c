@@ -827,7 +827,7 @@ static int delKeys(RedisModuleCtx* ctx, RedisModuleString* keys[], int n) {
     for (int i = 0; i < n; i++) {
         ASYNC_LOCK(ctx);
         // reply = RedisModule_Call(ctx, "DEL", "s", keys[i]);
-        reply = RedisModule_Call(ctx, "UNLINK", "s", keys[i]);
+        reply = RedisModule_Call(ctx, "UNLINK", "s!", keys[i]);
         ASYNC_UNLOCK(ctx);
         int type = RedisModule_CallReplyType(reply);
         if (reply == NULL)
@@ -1071,14 +1071,12 @@ int SlotsMGRT_SlotOneKey(RedisModuleCtx* ctx, const char* host,
     RedisModuleString* key = dictGetKey(de);
     int ret = SlotsMGRT_OneKey(ctx, host, port, timeout, key, mgrtType);
     if (ret == SLOTS_MGRT_ERR) {
-        RedisModule_FreeString(ctx, key);
         return SLOTS_MGRT_ERR;
     }
     if (ret > 0) {
         // should sub cron_loop(server loop) to del
         // m_dictDelete(db_slot_infos[db].slotkey_tables[slot], k);
     }
-    RedisModule_FreeString(ctx, key);
     if (left != NULL) {
         pthread_rwlock_rdlock(&(db_slot_infos[db].slotkey_table_rwlocks[slot]));
         *left = dictSize(db_slot_infos[db].slotkey_tables[slot]);

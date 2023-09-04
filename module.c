@@ -282,9 +282,6 @@ int SlotsMGRTOne_RedisCommand(RedisModuleCtx* ctx, RedisModuleString** argv,
  * */
 int SlotsMGRTSlot_RedisCommand(RedisModuleCtx* ctx, RedisModuleString** argv,
                                int argc) {
-    /* Use automatic memory management. */
-    RedisModule_AutoMemory(ctx);
-
     if (argc != 5 && argc != 6)
         return RedisModule_WrongArity(ctx);
 
@@ -328,8 +325,7 @@ int SlotsMGRTSlot_RedisCommand(RedisModuleCtx* ctx, RedisModuleString** argv,
  * */
 int SlotsMGRTTagOne_RedisCommand(RedisModuleCtx* ctx, RedisModuleString** argv,
                                  int argc) {
-    /* Use automatic memory management. */
-    RedisModule_AutoMemory(ctx);
+    // RedisModule_AutoMemory(ctx);
 
     if (argc != 5 && argc != 6)
         return RedisModule_WrongArity(ctx);
@@ -362,8 +358,7 @@ int SlotsMGRTTagOne_RedisCommand(RedisModuleCtx* ctx, RedisModuleString** argv,
  * */
 int SlotsMGRTTagSlot_RedisCommand(RedisModuleCtx* ctx, RedisModuleString** argv,
                                   int argc) {
-    /* Use automatic memory management. */
-    RedisModule_AutoMemory(ctx);
+    // RedisModule_AutoMemory(ctx);
 
     if (argc != 5 && argc != 6)
         return RedisModule_WrongArity(ctx);
@@ -424,8 +419,7 @@ int SlotsTest_RedisCommand(RedisModuleCtx* ctx, RedisModuleString** argv,
  * */
 int SlotsDel_RedisCommand(RedisModuleCtx* ctx, RedisModuleString** argv,
                           int argc) {
-    /* Use automatic memory management. */
-    RedisModule_AutoMemory(ctx);
+    // RedisModule_AutoMemory(ctx);
 
     if (argc < 2)
         return RedisModule_WrongArity(ctx);
@@ -507,7 +501,7 @@ int SlotsRestore_RedisCommand(RedisModuleCtx* ctx, RedisModuleString** argv,
 
     int ret = slotsRestoreCmd(ctx, argv, argc);
     if (ret == SLOTS_MGRT_ERR) {
-        RedisModule_ReplyWithError(ctx, REDISXSLOT_ERRORMSG_SYNTAX);
+        RedisModule_ReplyWithError(ctx, REDISXSLOT_ERRORMSG_MGRT);
         return REDISMODULE_ERR;
     }
 

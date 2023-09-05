@@ -152,7 +152,7 @@ proc test_local_cmd {r slotsize} {
     }
 }
 
-proc test_slotsmgrtone {src dest dest_host dest_port slotsize} {
+proc test_slotsmgrtone {src dest dest_host dest_port slotsize withpipeline} {
     flush_db $src 0 $slotsize
     flush_db $dest 0 $slotsize
 
@@ -180,8 +180,8 @@ proc test_slotsmgrtone {src dest dest_host dest_port slotsize} {
         }
         set ttlms [$src pttl $one_key]
 
-        assert_equal 1 [$src slotsmgrtone $dest_host $dest_port 1000 $one_key]
-        assert_equal 0 [$src slotsmgrtone $dest_host $dest_port 1000 $one_key]
+        assert_equal 1 [$src slotsmgrtone $dest_host $dest_port 1000 $one_key $withpipeline]
+        assert_equal 0 [$src slotsmgrtone $dest_host $dest_port 1000 $one_key $withpipeline]
 
         set res [$src slotsinfo 0 $slotsize]
         if {$i==$n} {
@@ -213,7 +213,7 @@ proc test_slotsmgrtone {src dest dest_host dest_port slotsize} {
     assert {[llength [lindex $res 1]] == $n}
 }
 
-proc test_slotsmgrtslot {src dest dest_host dest_port slotsize} {
+proc test_slotsmgrtslot {src dest dest_host dest_port slotsize withpipeline} {
     flush_db $src 0 $slotsize
     flush_db $dest 0 $slotsize
 
@@ -225,7 +225,7 @@ proc test_slotsmgrtslot {src dest dest_host dest_port slotsize} {
 
     set res {}
     for {set i 1} {$i <= $n} {incr i} {
-        set res [$src slotsmgrtslot $dest_host $dest_port 1000 $slot]
+        set res [$src slotsmgrtslot $dest_host $dest_port 1000 $slot $withpipeline]
         assert_equal 2 [llength $res]
         assert_equal 1 [lindex $res 0]
         assert_equal [expr {$n-$i}] [lindex $res 1]
@@ -253,7 +253,7 @@ proc test_slotsmgrtslot {src dest dest_host dest_port slotsize} {
     assert {[llength [lindex $res 1]] == $n}
 }
 
-proc test_slotsmgrttagone {src dest dest_host dest_port slotsize} {
+proc test_slotsmgrttagone {src dest dest_host dest_port slotsize withpipeline} {
     flush_db $src 0 $slotsize
     flush_db $dest 0 $slotsize
 
@@ -274,7 +274,7 @@ proc test_slotsmgrttagone {src dest dest_host dest_port slotsize} {
     assert {[llength [lindex $res 1]] > 0}
     set one_key [lindex [lindex $res 1] 0]
 
-    assert_equal $n [$src slotsmgrttagone $dest_host $dest_port 1000 $one_key]
+    assert_equal $n [$src slotsmgrttagone $dest_host $dest_port 1000 $one_key $withpipeline]
 
     set res [$src slotsscan $slot $next_cursor count 1]
     assert_equal 2 [llength $res]
@@ -289,7 +289,7 @@ proc test_slotsmgrttagone {src dest dest_host dest_port slotsize} {
     }
 }
 
-proc test_slotsmgrttagslot {src dest dest_host dest_port slotsize} {
+proc test_slotsmgrttagslot {src dest dest_host dest_port slotsize withpipeline} {
     flush_db $src 0 $slotsize
     flush_db $dest 0 $slotsize
 
@@ -299,7 +299,7 @@ proc test_slotsmgrttagslot {src dest dest_host dest_port slotsize} {
     set key_list [add_test_data $src $n $tag]
     assert_equal $n [llength $key_list]
 
-    set res [$src slotsmgrttagslot $dest_host $dest_port 1000 $slot]
+    set res [$src slotsmgrttagslot $dest_host $dest_port 1000 $slot $withpipeline]
     assert_equal 2 [llength $res]
     assert_equal $n [lindex $res 0]
     assert_equal 0 [lindex $res 1]
@@ -317,6 +317,66 @@ proc test_slotsmgrttagslot {src dest dest_host dest_port slotsize} {
     }
 }
 
+proc test_mgrtslot {src dest dest_host dest_port slotsize} {
+    test "test slotsmgrtone dest $dest_host:$dest_port - slotsize: $slotsize" {
+        test_slotsmgrtone $src $dest $dest_host $dest_port $slotsize ""
+    }
+    test "test slotsmgrtone dest $dest_host:$dest_port - slotsize: $slotsize mgrt withpipeline" {
+        test_slotsmgrtone $src $dest $dest_host $dest_port $slotsize "withpipeline"
+    }
+
+    test "test slotsmgrtslot dest $dest_host:$dest_port - slotsize: $slotsize" {
+        test_slotsmgrtslot $src $dest $dest_host $dest_port $slotsize ""
+    }
+    test "test slotsmgrtslot dest $dest_host:$dest_port - slotsize: $slotsize mgrt withpipeline" {
+        test_slotsmgrtslot $src $dest $dest_host $dest_port $slotsize "withpipeline"
+    }
+
+    test "test slotsmgrttagone dest $dest_host:$dest_port - slotsize: $slotsize" {
+        test_slotsmgrttagone $src $dest $dest_host $dest_port $slotsize ""
+    }
+    test "test slotsmgrttagone dest $dest_host:$dest_port - slotsize: $slotsize mgrt withpipeline" {
+        test_slotsmgrttagone $src $dest $dest_host $dest_port $slotsize "withpipeline"
+    }
+
+    test "test slotsmgrttagslot dest $dest_host:$dest_port - slotsize: $slotsize" {
+        test_slotsmgrttagslot $src $dest $dest_host $dest_port $slotsize ""
+    }
+    test "test slotsmgrttagslot dest $dest_host:$dest_port - slotsize: $slotsize mgrt withpipeline" {
+        test_slotsmgrttagslot $src $dest $dest_host $dest_port $slotsize "withpipeline"
+    }
+}
+
+proc test_bg_mgrtslot {src dest dest_host dest_port slotsize} {
+    test "test slotsmgrtone async bg restore dest $dest_host:$dest_port - slotsize: $slotsize" {
+        test_slotsmgrtone $src $dest $dest_host $dest_port $slotsize ""
+    }
+    test "test slotsmgrtone async bg restore dest $dest_host:$dest_port - slotsize: $slotsize mgrt withpipeline" {
+        test_slotsmgrtone $src $dest $dest_host $dest_port $slotsize "withpipeline"
+    }
+
+    test "test slotsmgrtslot async bg restore dest $dest_host:$dest_port - slotsize: $slotsize" {
+        test_slotsmgrtslot $src $dest $dest_host $dest_port $slotsize ""
+    }
+    test "test slotsmgrtslot async bg restore dest $dest_host:$dest_port - slotsize: $slotsize mgrt withpipeline" {
+        test_slotsmgrtslot $src $dest $dest_host $dest_port $slotsize "withpipeline"
+    }
+
+    test "test slotsmgrttagone async bg restore dest $dest_host:$dest_port - slotsize: $slotsize" {
+        test_slotsmgrttagone $src $dest $dest_host $dest_port $slotsize ""
+    }
+    test "test slotsmgrttagone async bg restore dest $dest_host:$dest_port - slotsize: $slotsize mgrt withpipeline" {
+        test_slotsmgrttagone $src $dest $dest_host $dest_port $slotsize "withpipeline"
+    }
+
+    test "test slotsmgrttagslot async bg restore dest $dest_host:$dest_port - slotsize: $slotsize" {
+        test_slotsmgrttagslot $src $dest $dest_host $dest_port $slotsize ""
+    }
+    test "test slotsmgrttagslot async bg restore dest $dest_host:$dest_port - slotsize: $slotsize mgrt withpipeline" {
+        test_slotsmgrttagslot $src $dest $dest_host $dest_port $slotsize "withpipeline"
+    }
+}
+
 proc test_mgrt_cmd {r slotsize testmodule} {
     set src [srv 0 client]
 
@@ -324,42 +384,14 @@ proc test_mgrt_cmd {r slotsize testmodule} {
         set dest [srv 0 client]
         set dest_host [srv 0 host]
         set dest_port [srv 0 port]
-        test "test slotsmgrtone dest $dest_host:$dest_port - slotsize: $slotsize" {
-            test_slotsmgrtone $src $dest $dest_host $dest_port $slotsize
-        }
-
-        test "test slotsmgrtslot dest $dest_host:$dest_port - slotsize: $slotsize" {
-            test_slotsmgrtslot $src $dest $dest_host $dest_port $slotsize
-        }
-
-        test "test slotsmgrttagone dest $dest_host:$dest_port - slotsize: $slotsize" {
-            test_slotsmgrttagone $src $dest $dest_host $dest_port $slotsize
-        }
-
-        test "test slotsmgrttagslot dest $dest_host:$dest_port - slotsize: $slotsize" {
-            test_slotsmgrttagslot $src $dest $dest_host $dest_port $slotsize
-        }
+        test_mgrtslot $src $dest $dest_host $dest_port $slotsize
     }
 
     start_server [list overrides [list loadmodule "$testmodule $slotsize 0 async"]] {
         set dest [srv 0 client]
         set dest_host [srv 0 host]
         set dest_port [srv 0 port]
-        test "test slotsmgrtone dest async bg restore $dest_host:$dest_port - slotsize: $slotsize" {
-            test_slotsmgrtone $src $dest $dest_host $dest_port $slotsize
-        }
-
-        test "test slotsmgrtslot dest async bg restore $dest_host:$dest_port - slotsize: $slotsize" {
-            test_slotsmgrtslot $src $dest $dest_host $dest_port $slotsize
-        }
-
-        test "test slotsmgrttagone dest async bg restore $dest_host:$dest_port - slotsize: $slotsize" {
-            test_slotsmgrttagone $src $dest $dest_host $dest_port $slotsize
-        }
-
-        test "test slotsmgrttagslot dest async bg restore $dest_host:$dest_port - slotsize: $slotsize" {
-            test_slotsmgrttagslot $src $dest $dest_host $dest_port $slotsize
-        }
+        test_bg_mgrtslot $src $dest $dest_host $dest_port $slotsize
     }
 }
 

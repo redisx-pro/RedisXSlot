@@ -850,11 +850,11 @@ static int delKeys(RedisModuleCtx* ctx, RedisModuleString* keys[], int n) {
 void FreeDumpObjs(RedisModuleCtx* ctx, rdb_dump_obj** objs, int n) {
     for (int i = 0; i < n; i++) {
         if (objs[i] != NULL) {
-            RedisModule_Free(objs[i]);
             if (objs[i]->val != NULL) {
                 RedisModule_FreeString(ctx, objs[i]->val);
                 objs[i]->val = NULL;
             }
+            RedisModule_Free(objs[i]);
             objs[i] = NULL;
         }
     }

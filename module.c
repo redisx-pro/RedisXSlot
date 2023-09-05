@@ -493,9 +493,6 @@ int SlotsRestore_RedisCommand(RedisModuleCtx* ctx, RedisModuleString** argv,
         return SlotsRestoreAsyncBlock_RedisCommand(ctx, argv, argc);
     }
 
-    /* Use automatic memory management. */
-    RedisModule_AutoMemory(ctx);
-
     if (argc < 4 || (argc - 1) % 3 != 0)
         return RedisModule_WrongArity(ctx);
 

@@ -60,7 +60,7 @@ ifeq ($(ENABLE_SANITIZE),YES)
 	SANITIZE_CFLAGS=-fsanitize=address -fno-omit-frame-pointer -fsanitize-address-use-after-scope 
 	SANITIZE_LDLAGS=-fsanitize=address -lasan
 endif
-	OPTIMIZE_CFLAGS=-O0
+	OPTIMIZE_CFLAGS=-O1
 endif
 # find the OS
 uname_S := $(shell sh -c 'uname -s 2>/dev/null || echo not')
@@ -83,7 +83,11 @@ else
 					-fPIC -W -Wall -dynamic -fno-common -g -ggdb -std=gnu99 \
 					-D_GNU_SOURCE \
 					-pthread -fvisibility=hidden
-	SHOBJ_LDFLAGS ?= -fPIC -bundle -undefined dynamic_lookup \
+ifeq ($(ENABLE_SANITIZE),YES)
+	LD=clang
+	SANITIZE_LDLAGS=-fsanitize=address
+endif
+	SHOBJ_LDFLAGS ?= -bundle -undefined dynamic_lookup \
 					$(SANITIZE_LDLAGS) \
 					-keep_private_externs
 endif

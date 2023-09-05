@@ -152,7 +152,68 @@ proc test_local_cmd {r slotsize} {
     }
 }
 
-proc test_slotsmgrtslot {r src dest dest_host dest_port slotsize} {
+proc test_slotsmgrtone {src dest dest_host dest_port slotsize} {
+    flush_db $src 0 $slotsize
+    flush_db $dest 0 $slotsize
+
+    set n 100
+    set tag "tag5"
+    set slot [expr {[crc::crc32 $tag]%$slotsize}]
+    set key_list [add_test_data $src $n $tag]
+    assert_equal $n [llength $key_list]
+
+    set res {}
+    set next_cursor "0"
+    set one_val ""
+    for {set i 1} {$i <= $n} {incr i} {
+        while 1 {
+            set res [$src slotsscan $slot $next_cursor count 1]
+            assert_equal 2 [llength $res]
+            set next_cursor [lindex $res 0]
+            if {[llength [lindex $res 1]] > 0} {break}
+        }
+        assert {[llength [lindex $res 1]] > 0}
+        set one_key [lindex [lindex $res 1] 0]
+        set key_type [$src type $one_key]
+        if {$key_type eq {string}} {
+            set one_val [$src get $one_key]
+        }
+        set ttlms [$src pttl $one_key]
+
+        assert_equal 1 [$src slotsmgrtone $dest_host $dest_port 1000 $one_key]
+        assert_equal 0 [$src slotsmgrtone $dest_host $dest_port 1000 $one_key]
+
+        set res [$src slotsinfo 0 $slotsize]
+        if {$i==$n} {
+            assert_equal 0 [llength $res]
+        } else {
+            assert_equal 1 [llength $res]
+            assert_equal $slot [lindex [lindex $res 0] 0]
+            assert_equal [expr {$n-$i}] [lindex [lindex $res 0] 1]
+            assert_equal 0 [$src exists $one_key]
+        }
+
+        set res [$dest slotsinfo 0 $slotsize]
+        assert_equal 1 [llength $res]
+        assert_equal $slot [lindex [lindex $res 0] 0]
+        assert_equal $i [lindex [lindex $res 0] 1]
+        assert_equal 1 [$dest exists $one_key]
+        assert_equal $key_type [$dest type $one_key]
+        if {$key_type eq {string}} {
+            assert_equal $one_val [$dest get $one_key]
+        }
+        assert {$ttlms >= [$dest pttl $one_key]}
+    }
+
+    set res [$src slotsscan $slot $next_cursor count 1]
+    assert_equal 2 [llength $res]
+    assert {[llength [lindex $res 1]] == 0}
+    set res [$dest slotsscan $slot 0 count $n]
+    assert_equal 2 [llength $res]
+    assert {[llength [lindex $res 1]] == $n}
+}
+
+proc test_slotsmgrtslot {src dest dest_host dest_port slotsize} {
     flush_db $src 0 $slotsize
     flush_db $dest 0 $slotsize
 
@@ -192,6 +253,70 @@ proc test_slotsmgrtslot {r src dest dest_host dest_port slotsize} {
     assert {[llength [lindex $res 1]] == $n}
 }
 
+proc test_slotsmgrttagone {src dest dest_host dest_port slotsize} {
+    flush_db $src 0 $slotsize
+    flush_db $dest 0 $slotsize
+
+    set n 100
+    set tag "tag5"
+    set slot [expr {[crc::crc32 $tag]%$slotsize}]
+    set key_list [add_test_data $src $n $tag]
+    assert_equal $n [llength $key_list]
+
+    set res {}
+    set next_cursor "0"
+    while 1 {
+        set res [$src slotsscan $slot $next_cursor count 1]
+        assert_equal 2 [llength $res]
+        set next_cursor [lindex $res 0]
+        if {[llength [lindex $res 1]] > 0} {break}
+    }
+    assert {[llength [lindex $res 1]] > 0}
+    set one_key [lindex [lindex $res 1] 0]
+
+    assert_equal $n [$src slotsmgrttagone $dest_host $dest_port 1000 $one_key]
+
+    set res [$src slotsscan $slot $next_cursor count 1]
+    assert_equal 2 [llength $res]
+    assert {[llength [lindex $res 1]] == 0}
+    set res [$dest slotsscan $slot 0 count $n]
+    assert_equal 2 [llength $res]
+    assert {[llength [lindex $res 1]] == $n}
+
+    foreach key $key_list {
+        assert_equal 0 [$src exists $key]
+        assert_equal 1 [$dest exists $key]
+    }
+}
+
+proc test_slotsmgrttagslot {src dest dest_host dest_port slotsize} {
+    flush_db $src 0 $slotsize
+    flush_db $dest 0 $slotsize
+
+    set n 100
+    set tag "tag5"
+    set slot [expr {[crc::crc32 $tag]%$slotsize}]
+    set key_list [add_test_data $src $n $tag]
+    assert_equal $n [llength $key_list]
+
+    set res [$src slotsmgrttagslot $dest_host $dest_port 1000 $slot]
+    assert_equal 2 [llength $res]
+    assert_equal $n [lindex $res 0]
+    assert_equal 0 [lindex $res 1]
+
+    set res [$src slotsscan $slot 0 count 1]
+    assert_equal 2 [llength $res]
+    assert {[llength [lindex $res 1]] == 0}
+    set res [$dest slotsscan $slot 0 count $n]
+    assert_equal 2 [llength $res]
+    assert {[llength [lindex $res 1]] == $n}
+
+    foreach key $key_list {
+        assert_equal 0 [$src exists $key]
+        assert_equal 1 [$dest exists $key]
+    }
+}
+
 proc test_mgrt_cmd {r slotsize testmodule} {
     set src [srv 0 client]
 
@@ -200,135 +325,44 @@ proc test_mgrt_cmd {r slotsize testmodule} {
         set dest_host [srv 0 host]
         set dest_port [srv 0 port]
         test "test slotsmgrtone dest $dest_host:$dest_port - slotsize: $slotsize" {
-            flush_db $src 0 $slotsize
-            flush_db $dest 0 $slotsize
-
-            set n 100
-            set tag "tag5"
-            set slot [expr {[crc::crc32 $tag]%$slotsize}]
-            set key_list [add_test_data $src $n $tag]
-            assert_equal $n [llength $key_list]
-
-            set res {}
-            set next_cursor "0"
-            set one_val ""
-            for {set i 1} {$i <= $n} {incr i} {
-                while 1 {
-                    set res [$src slotsscan $slot $next_cursor count 1]
-                    assert_equal 2 [llength $res]
-                    set next_cursor [lindex $res 0]
-                    if {[llength [lindex $res 1]] > 0} {break}
-                }
-                assert {[llength [lindex $res 1]] > 0}
-                set one_key [lindex [lindex $res 1] 0]
-                set key_type [$src type $one_key]
-                if {$key_type eq {string}} {
-                    set one_val [$src get $one_key]
-                }
-                set ttlms [$src pttl $one_key]
-
-                assert_equal 1 [$r -1 slotsmgrtone $dest_host $dest_port 1000 $one_key]
-                assert_equal 0 [$r -1 slotsmgrtone $dest_host $dest_port 1000 $one_key]
-
-                set res [$src slotsinfo 0 $slotsize]
-                if {$i==$n} {
-                    assert_equal 0 [llength $res]
-                } else {
-                    assert_equal 1 [llength $res]
-                    assert_equal $slot [lindex [lindex $res 0] 0]
-                    assert_equal [expr {$n-$i}] [lindex [lindex $res 0] 1]
-                    assert_equal 0 [$src exists $one_key]
-                }
-
-                set res [$dest slotsinfo 0 $slotsize]
-                assert_equal 1 [llength $res]
-                assert_equal $slot [lindex [lindex $res 0] 0]
-                assert_equal $i [lindex [lindex $res 0] 1]
-                assert_equal 1 [$dest exists $one_key]
-                assert_equal $key_type [$dest type $one_key]
-                if {$key_type eq {string}} {
-                    assert_equal $one_val [$dest get $one_key]
-                }
-                assert {$ttlms >= [$dest pttl $one_key]}
-            }
-
-            set res [$src slotsscan $slot $next_cursor count 1]
-            assert_equal 2 [llength $res]
-            assert {[llength [lindex $res 1]] == 0}
-            set res [$dest slotsscan $slot 0 count $n]
-            assert_equal 2 [llength $res]
-            assert {[llength [lindex $res 1]] == $n}
+            test_slotsmgrtone $src $dest $dest_host $dest_port $slotsize
         }
 
         test "test slotsmgrtslot dest $dest_host:$dest_port - slotsize: $slotsize" {
-            test_slotsmgrtslot $r $src $dest $dest_host $dest_port $slotsize
+            test_slotsmgrtslot $src $dest $dest_host $dest_port $slotsize
         }
 
         test "test slotsmgrttagone dest $dest_host:$dest_port - slotsize: $slotsize" {
-            flush_db $src 0 $slotsize
-            flush_db $dest 0 $slotsize
-
-            set n 100
-            set tag "tag5"
-            set slot [expr {[crc::crc32 $tag]%$slotsize}]
-            set key_list [add_test_data $src $n $tag]
-            assert_equal $n [llength $key_list]
-
-            set res {}
-            set next_cursor "0"
-            while 1 {
-                set res [$src slotsscan $slot $next_cursor count 1]
-                assert_equal 2 [llength $res]
-                set next_cursor [lindex $res 0]
-                if {[llength [lindex $res 1]] > 0} {break}
-            }
-            assert {[llength [lindex $res 1]] > 0}
-            set one_key [lindex [lindex $res 1] 0]
-
-            assert_equal $n [$r -1 slotsmgrttagone $dest_host $dest_port 1000 $one_key]
-
-            set res [$src slotsscan $slot $next_cursor count 1]
-            assert_equal 2 [llength $res]
-            assert {[llength [lindex $res 1]] == 0}
-            set res [$dest slotsscan $slot 0 count $n]
-            assert_equal 2 [llength $res]
-            assert {[llength [lindex $res 1]] == $n}
-
-            foreach key $key_list {
-                assert_equal 0 [$src exists $key]
-                assert_equal 1 [$dest exists $key]
-            }
+            test_slotsmgrttagone $src $dest $dest_host $dest_port $slotsize
         }
 
         test "test slotsmgrttagslot dest $dest_host:$dest_port - slotsize: $slotsize" {
-            flush_db $src 0 $slotsize
-            flush_db $dest 0 $slotsize
+            test_slotsmgrttagslot $src $dest $dest_host $dest_port $slotsize
+        }
+    }
 
-            set n 100
-            set tag "tag5"
-            set slot [expr {[crc::crc32 $tag]%$slotsize}]
-            set key_list [add_test_data $src $n $tag]
-            assert_equal $n [llength $key_list]
+    start_server [list overrides [list loadmodule "$testmodule $slotsize 0 async"]] {
+        set dest [srv 0 client]
+        set dest_host [srv 0 host]
+        set dest_port [srv 0 port]
+        test "test slotsmgrtone dest async bg restore $dest_host:$dest_port - slotsize: $slotsize" {
+            test_slotsmgrtone $src $dest $dest_host $dest_port $slotsize
+        }
 
-            set res [$r -1 slotsmgrttagslot $dest_host $dest_port 1000 $slot]
-            assert_equal 2 [llength $res]
-            assert_equal $n [lindex $res 0]
-            assert_equal 0 [lindex $res 1]
+        test "test slotsmgrtslot dest async bg restore $dest_host:$dest_port - slotsize: $slotsize" {
+            test_slotsmgrtslot $src $dest $dest_host $dest_port $slotsize
+        }
 
-            set res [$src slotsscan $slot $next_cursor count 1]
-            assert_equal 2 [llength $res]
-            assert {[llength [lindex $res 1]] == 0}
-            set res [$dest slotsscan $slot 0 count $n]
-            assert_equal 2 [llength $res]
-            assert {[llength [lindex $res 1]] == $n}
+        test "test slotsmgrttagone dest async bg restore $dest_host:$dest_port - slotsize: $slotsize" {
+            test_slotsmgrttagone $src $dest $dest_host $dest_port $slotsize
+        }
 
-            foreach key $key_list {
-                assert_equal 0 [$src exists $key]
-                assert_equal 1 [$dest exists $key]
-            }
+        test "test slotsmgrttagslot dest async bg restore $dest_host:$dest_port - slotsize: $slotsize" {
+            test_slotsmgrttagslot $src $dest $dest_host $dest_port $slotsize
         }
     }
 }
+
 
 #--------------------- unload -----------------#
 proc test_unload {r} {
@@ -343,31 +377,123 @@ proc test_unload {r} {
 
 #--------------------- start server loadmodule test -------------------#
 tags "modules" {
-    test {start redis server loadmodule: default 1024 slots no async block no thread pool} {
+    test {start redis server loadmodule: default 1024 slots - no thread pool - no async block } {
         start_server [list overrides [list loadmodule "$testmodule"]] {
             print_module_args r
-            #test_local_cmd r 1024
+            test_local_cmd r 1024
             test_mgrt_cmd r 1024 $testmodule
             test_unload r
         }
     }
 
-    test {start redis server loadmodule: 65536 slots no async block no thread pool} {
+    test {start redis server loadmodule: default 1024 slots - no thread pool - async block} {
+        start_server [list overrides [list loadmodule "$testmodule 1024 0 async"]] {
+            print_module_args r
+            test_local_cmd r 1024
+            test_mgrt_cmd r 1024 $testmodule
+            test_unload r
+        }
+    }
+
+    test {start redis server loadmodule: default 1024 slots - thread pool size 4 - async block} {
+        start_server [list overrides [list loadmodule "$testmodule 1024 4 async"]] {
+            print_module_args r
+            test_local_cmd r 1024
+            test_mgrt_cmd r 1024 $testmodule
+            test_unload r
+        }
+    }
+
+    test {start redis server loadmodule: default 1024 slots - thread pool size 4 - async block - setcpuaffinity(async)} {
+        start_server [list overrides [list loadmodule "$testmodule 1024 4 async 1,3"]] {
+            print_module_args r
+            test_local_cmd r 1024
+            test_mgrt_cmd r 1024 $testmodule
+            test_unload r
+        }
+    }
+
+    test {start redis server loadmodule: 65536 slots - no thread pool - no async block} {
         start_server [list overrides [list loadmodule "$testmodule 65536"]] {
             print_module_args r
             test_local_cmd r 65536
+            test_mgrt_cmd r 65536 $testmodule
+            test_unload r
+        }
+    }
+
+    test {start redis server loadmodule: 65536 slots - no thread pool - async block} {
+        start_server [list overrides [list loadmodule "$testmodule 65536 0 async"]] {
+            print_module_args r
+            test_local_cmd r 65536
+            test_mgrt_cmd r 65536 $testmodule
+            test_unload r
+        }
+    }
+
+    test {start redis server loadmodule: 65536 slots - thread pool size 4 - async block} {
+        start_server [list overrides [list loadmodule "$testmodule 65536 4 async"]] {
+            print_module_args r
+            test_local_cmd r 65536
+            test_mgrt_cmd r 65536 $testmodule
             test_unload r
         }
     }
 }
 
 #------------ start server and request module load test --------------#
+
 start_server {tags {"modules"}} {
-    test {cli module load: default 1024 slots no async block no thread pool} {
+    test {cli module load: default 1024 slots - no thread pool - no async block} {
         init_config_1 r
         assert_equal {OK} [r module load $testmodule]
         print_module_args r
         test_local_cmd r 1024
+        test_mgrt_cmd r 1024 $testmodule
+        test_unload r
+    }
+}
+
+start_server {tags {"modules"}} {
+    test {cli module load: default 1024 slots - no thread pool - async block} {
+        init_config_1 r
+        assert_equal {OK} [r module load $testmodule 1024 0 async]
+        print_module_args r
+        test_local_cmd r 1024
+        test_mgrt_cmd r 1024 $testmodule
+        test_unload r
+    }
+}
+
+start_server {tags {"modules"}} {
+    test {cli module load: default 1024 slots - thread pool size 4 - no async block} {
+        init_config_1 r
+        assert_equal {OK} [r module load $testmodule 1024 4]
+        print_module_args r
+        test_local_cmd r 1024
+        test_mgrt_cmd r 1024 $testmodule
+        test_unload r
+    }
+}
+
+start_server {tags {"modules"}} {
+    test {cli module load: default 1024 slots - thread pool size 4 - async block} {
+        init_config_1 r
+        assert_equal {OK} [r module load $testmodule 1024 4 async]
+        print_module_args r
+        test_local_cmd r 1024
+        test_mgrt_cmd r 1024 $testmodule
+        test_unload r
+    }
+}
+
+start_server {tags {"modules"}} {
+    test {cli module load: default 1024 slots - thread pool size 4 - async block - setcpuaffinity(async)} {
+        init_config_1 r
+        assert_equal {OK} [r module load $testmodule 1024 4 async 1,3]
+        print_module_args r
+        test_local_cmd r 1024
+        test_mgrt_cmd r 1024 $testmodule
         test_unload r
     }
 }

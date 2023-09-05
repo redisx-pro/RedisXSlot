@@ -45,7 +45,6 @@
 #include <time.h>
 #include <unistd.h>
 
-#include "RedisModulesSDK/rmutil/sds.h"
 #include "dep/dict.h"
 #include "dep/list.h"
 #include "dep/skiplist.h"

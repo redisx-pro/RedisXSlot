@@ -376,8 +376,9 @@ static int doSplitRestoreCommand(RedisModuleCtx* ctx,
     if (obj_cn <= 0) {
         return SLOTS_MGRT_NOTHING;
     }
-    char** sub_argv = RedisModule_Alloc(sizeof(char*) * 3 * obj_cn + 1);
-    size_t* sub_argvlen = RedisModule_Alloc(sizeof(size_t) * 3 * obj_cn + 1);
+    // alloc with memory alignment, so sizeof(char*) * 3 * obj_cn + 1 is ok
+    char** sub_argv = RedisModule_Alloc(sizeof(char*) * (3 * obj_cn + 1));
+    size_t* sub_argvlen = RedisModule_Alloc(sizeof(size_t) * (3 * obj_cn + 1));
     sub_argv[0] = "SLOTSRESTORE";
     // cp pointer
     memcpy(&sub_argv[1], &argv[start_pos * 3], sizeof(char*) * obj_cn * 3);

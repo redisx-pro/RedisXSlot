@@ -132,14 +132,12 @@ ${SOURCEDIR}/module.o: ${SOURCEDIR}/module.c
 	$(CC) -c -o $@ $(SHOBJ_CFLAGS) $(DEP_CFLAGS) \
 	$(THREADPOOL_CFLAGS) \
 	$(HIREDIS_CFLAGS) \
-	$(SDK_CFLAGS) \
 	$< 
 
 ${SOURCEDIR}/redisxslot.o: ${SOURCEDIR}/redisxslot.c
 	$(CC) -c -o $@ $(SHOBJ_CFLAGS) $(DEP_CFLAGS) \
 	$(THREADPOOL_CFLAGS) \
 	$(HIREDIS_CFLAGS) \
-	$(SDK_CFLAGS) \
 	$<
 
 %.o: %.c
@@ -148,7 +146,6 @@ ${SOURCEDIR}/redisxslot.o: ${SOURCEDIR}/redisxslot.c
 redisxslot.so: $(CC_OBJECTS)
 	$(LD) -o $@ $(CC_OBJECTS) \
 	$(SHOBJ_LDFLAGS) \
-	$(SDK_LDFLAGS) \
 	$(HIREDIS_LIB_FLAGS) \
 	$(APPLE_LIBS) \
 	-lc

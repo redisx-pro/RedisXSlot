@@ -117,6 +117,9 @@ help:
 	@echo "HIREDIS_USE_DYLIB=1, linker with use hiredis.so"
 	@echo "HIREDIS_USE_DYLIB=1 HIREDIS_RUNTIME_DIR=/usr/local/lib ,if pkg install hiredis, linker with HIREDIS_RUNTIME_DIR use hiredis.so"
 	@echo "REDIS_VERSION=6000, default 6000(6.0.0), use 70200(7.2.0) inlcude 7.2.0+ redismodule.h to use feature api"
+	@echo "make docker_img to build latest redis-server load redisxslot module img"
+	@echo "make docker_img_run to run latest redisxslot module docker img container"
+	@echo "have fun :)"
 
 init:
 	@git submodule init
@@ -175,5 +178,88 @@ clean:
 	rm -rvf $(SOURCEDIR)/redisxslot.so.$(REDISXSLOT_SONAME)
 	rm -rvf $(SOURCEDIR)/redisxslot.dylib.$(REDISXSLOT_SONAME)
 
+# build docker img with redis stable version https://hub.docker.com/_/redis/ 
+# (v6.0)6.0.20 (v6.2)6.2.13 (v7.0)7.0.12 (v7.2)7.2.0
 docker_img:
-	docker build -t redisxslot:latest . --build-arg REDIS_IMG_TAG=latest
+	docker build -t redisxslot:latest_$(REDISXSLOT_SONAME) . --build-arg A_REDIS_IMG_TAG=latest --build-arg A_REDIS_SERVER_PORT=17000
+docker_img_v6.0:
+	docker build -t redisxslot:6.0.20_$(REDISXSLOT_SONAME) . --build-arg A_REDIS_IMG_TAG=6.0.20 --build-arg A_REDIS_SERVER_PORT=16001
+docker_img_v6.2:
+	docker build -t redisxslot:6.2.13_$(REDISXSLOT_SONAME) . --build-arg A_REDIS_IMG_TAG=6.2.13 --build-arg A_REDIS_SERVER_PORT=16002
+docker_img_v7.0:
+	docker build -t redisxslot:7.0.12_$(REDISXSLOT_SONAME) . --build-arg A_REDIS_IMG_TAG=7.0.12 --build-arg A_REDIS_SERVER_PORT=16003
+docker_img_v7.2:
+	docker build -t redisxslot:7.2.0_$(REDISXSLOT_SONAME) . --build-arg A_REDIS_IMG_TAG=7.2.0 --build-arg A_REDIS_SERVER_PORT=16004
+
+# create bridge docker network
+docker_network:
+	docker network create -d bridge redisxslot-net
+
+docker_img_list:
+	docker image list | grep redisxslot
+
+# run docker reidisxslot container, (taolu)so easy~
+# just through bridge docker network for container inner run redis-cli 
+# tips: 
+# if container not a pod or vpc network, 
+# need config inner container access outside network.
+docker_img_run:
+	docker run -itd \
+	--name redisxslot \
+	--network redisxslot-net \
+	-p 17100:17000 \
+	redisxslot:latest_$(REDISXSLOT_SONAME)
+docker_img_run1:
+	docker run -itd \
+	--name redisxslot1 \
+	--network redisxslot-net \
+	-p 17101:17000 \
+	redisxslot:latest_$(REDISXSLOT_SONAME)
+docker_img_run_v6.0:
+	docker run -itd \
+	--name redisxslot_6.0.20_$(REDISXSLOT_SONAME) \
+	--network redisxslot-net \
+	-p 16100:16001 \
+	redisxslot:6.0.20_$(REDISXSLOT_SONAME)
+docker_img_run1_v6.0:
+	docker run -itd \
+	--name redisxslot1_6.0.20_$(REDISXSLOT_SONAME) \
+	--network redisxslot-net \
+	-p 16101:16001 \
+	redisxslot:6.0.20_$(REDISXSLOT_SONAME)
+docker_img_run_v6.2:
+	docker run -itd \
+	--name redisxslot_6.2.13_$(REDISXSLOT_SONAME) \
+	--network redisxslot-net \
+	-p 16200:16002 \
+	redisxslot:6.2.13_$(REDISXSLOT_SONAME)
+docker_img_run1_v6.2:
+	docker run -itd \
+	--name redisxslot1_6.2.13_$(REDISXSLOT_SONAME) \
+	--network redisxslot-net \
+	-p 16201:16002 \
+	redisxslot:6.2.13_$(REDISXSLOT_SONAME)
+docker_img_run_v7.0:
+	docker run -itd \
+	--name redisxslot_7.0.12_$(REDISXSLOT_SONAME) \
+	--network redisxslot-net \
+	-p 16300:16003 \
+	redisxslot:7.0.12_$(REDISXSLOT_SONAME)
+docker_img_run1_v7.0:
+	docker run -itd \
+	--name redisxslot1_7.0.12_$(REDISXSLOT_SONAME) \
+	--network redisxslot-net \
+	-p 16301:16003 \
+	redisxslot:7.0.12_$(REDISXSLOT_SONAME)
+docker_img_run_v7.2:
+	docker run -itd \
+	--name redisxslot_7.2.0_$(REDISXSLOT_SONAME)\
+	--network redisxslot-net \
+	-p 16400:16004 \
+	redisxslot:7.2.0_$(REDISXSLOT_SONAME)
+docker_img_run1_v7.2:
+	docker run -itd \
+	--name redisxslot1_7.2.0_$(REDISXSLOT_SONAME)\
+	--network redisxslot-net \
+	-p 16401:16004 \
+	redisxslot:7.2.0_$(REDISXSLOT_SONAME)

@@ -43,6 +43,27 @@ use conanfile py script todo ci with makefile release.
 1. use `redis/src/redis-benchmark` add test data, test 1m data mgrt, see [doc/test.md](./docs/test.md).
 2. need use redis tcl script `test_helper.tcl` to run test case；run `bash -x tests/run_test.sh`, so easy~
 3. ci loadmodule use test case to Redis test suite and run all test case. if new feat, add some test case in [tests/redisxslot.tcl](./tests/redisxslot.tcl)
+# Docker
+1. run in local docker
+```shell
+# build redisxslot with latest redis stable version 
+make docker_img
+# run redisxslot with latest redis stable version 
+make docker_run
+# then run redis-cli in container with bridge docker network for mgrt between container
+```
+2. if docker img is ok, u can push build's img to inner/cloud img hub or docker hub for ci/cd, like this:
+```shell
+# login
+docker login
+# tag a docker hub name
+#docker image tag {taghash} weedge/redisxslot:latest_0.1.0
+docker image tag redisxslot:latest_0.1.0 weedge/redisxslot:latest_0.1.0
+# push your docker hub
+docker push weedge/redisxslot:latest_0.1.0
+# then pull this remote img to run, u can use it~ :)
+docker run -itd --name weedge-redisxslot -p 16379:17000 weedge/redisxslot:latest_0.1.0
+```
 # Cmd Case
 ```shell
 127.0.0.1:6660> setex 122{tag} 86400 v3
@@ -61,7 +82,7 @@ OK
 1) (integer) 899
 127.0.0.1:6660> slotsinfo 899 1
 1) 1) (integer) 899
-   2) (integer) 6
+   1) (integer) 6
 127.0.0.1:6660> SLOTSMGRTTAGSLOT 127.0.0.1 6666 3000 899
 1) (integer) 6
 2) (integer) 0
@@ -72,7 +93,7 @@ OK
 ```shell
 127.0.0.1:6666> slotsinfo 0 1024
 1) 1) (integer) 899
-   2) (integer) 6
+   1) (integer) 6
 127.0.0.1:6666> get 122{tag}
 "v3"
 127.0.0.1:6666> ttl 122{tag}

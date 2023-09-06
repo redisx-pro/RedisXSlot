@@ -174,3 +174,6 @@ clean:
 	rm -rvf $(HIREDIS_RUNTIME_DIR)/libhiredis.so.1.1.0
 	rm -rvf $(SOURCEDIR)/redisxslot.so.$(REDISXSLOT_SONAME)
 	rm -rvf $(SOURCEDIR)/redisxslot.dylib.$(REDISXSLOT_SONAME)
+
+docker_img:
+	docker build -t redisxslot:latest . --build-arg REDIS_IMG_TAG=latest

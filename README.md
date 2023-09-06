@@ -21,19 +21,18 @@
 6. support slot tag key migrate, for (smart client/proxy)'s configSrv admin contoller layer use it.
     use `SLOTSMGRTTAGSLOT` cmd to migrate slot's key with same tag,
     default use slotsrestore batch send key, ttlms, dump rdb val ... (restore with replace)
-    if migrate cmd use withretore, pipeline buff to send key ttlms (restore with replace)
 7. `SLOTSRESTORE` if num_threads>0, init thread pool size to send `slotsrestore` batch keys job. loadmodule like this `./redis/src/redis-server --port 6379 --loadmodule ./redisxslot.so 1024 4 --dbfilename dump.6379.rdb`
 8. about migrate cmd, create a thread async block todo per client, splite batch migrate, don't or less block other cmd run. loadmodule like this `./redis/src/redis-server --port 6379 --loadmodule ./redisxslot.so 1024 4 async --dbfilename dump.6379.rdb`
 9. support setcpuaffinity for migrate async thread like redis bio job thread config setcpuaffinity on linux/bsd(syntax of cpu list looks like taskset).  loadmodule like this `./redis/src/redis-server --port 6379 --loadmodule ./redisxslot.so 1024 0 async 1,3 --dbfilename dump.6379.rdb` 
 10. about migrate cmd, support pipeline buffer migrate, use migrate cmd like this `SLOTSMGRTTAGSLOT 127.0.0.1 6379 30000 835 withpipeline`. use `withpipeline` current don't support thread pool and async block migrate. 
 # Build & LoadModule
 ```shell
-git clone https://github.com/weedge/redisxslot.git
-# make help, default with hiredis static lib
-cd redisxslot && make && cd ..
 git clone https://github.com/redis/redis.git
 cd redis && make && cd ..
-./redis/src/redis-server --port 6379 --loadmodule ./redisxslot/redisxslot.so --dbfilename dump.6379.rdb
+git clone https://github.com/weedge/redisxslot.git
+# make help, default with hiredis static lib
+cd redisxslot && make RM_INCLUDE_DIR=$(pwd)/../redis/src
+../redis/src/redis-server --port 6379 --loadmodule ./redisxslot.so --dbfilename dump.6379.rdb
 ```
 Tips: 
 1. if want spec redis version(>=6.0.0) run `make RM_INCLUDE_DIR={redis_path}/src`,default use latest version(redismodule.h)

@@ -1,3 +1,5 @@
+[![licence](https://img.shields.io/github/license/weedge/redisxslot.svg)](https://github.com/weedge/redisxslot/blob/master/LICENSE)
+[![release](https://img.shields.io/github/v/release/weedge/redisxslot.svg)](https://github.com/weedge/redisxslot/releases/latest)
 # RedisxSlot
 
 **Supported redis version**: redis >= 6.0
